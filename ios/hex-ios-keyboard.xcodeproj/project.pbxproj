@@ -27,6 +27,7 @@
 		C35C9885B07F4B01E331D097 /* KeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B03D97518DEAE1E051B255DA /* KeyboardView.swift */; };
 		D4960737DB175DFB98AAE4E8 /* SharedState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE47EBEA5F71A743A989C35E /* SharedState.swift */; };
 		DD1F3008D6C8F3072077A07A /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F5F9C27EB67E2A4E1AC0FE1 /* AudioRecorder.swift */; };
+		E54A77300B236704AC863A03 /* HostAppObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99C7C7A7D48A97783AF9DC7D /* HostAppObserver.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,6 +69,7 @@
 		962D9EFC321E0B07F3BEA518 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		976E19C7C66374255A718742 /* VoiceKeyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VoiceKeyboard.entitlements; sourceTree = "<group>"; };
 		978DDB6927C175AD7ACA0990 /* MacConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConnection.swift; sourceTree = "<group>"; };
+		99C7C7A7D48A97783AF9DC7D /* HostAppObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostAppObserver.swift; sourceTree = "<group>"; };
 		AE47EBEA5F71A743A989C35E /* SharedState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedState.swift; sourceTree = "<group>"; };
 		B03D97518DEAE1E051B255DA /* KeyboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardView.swift; sourceTree = "<group>"; };
 		B923D85B94952FBDDE9A92F8 /* KeyboardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardViewController.swift; sourceTree = "<group>"; };
@@ -87,6 +89,7 @@
 				451DC896D4B2299B9858A9E0 /* ContentView.swift */,
 				7A8CAB84F66F59AE415404D4 /* DictationSession.swift */,
 				D4606EA34661D42E48816705 /* HistoryView.swift */,
+				99C7C7A7D48A97783AF9DC7D /* HostAppObserver.swift */,
 				962D9EFC321E0B07F3BEA518 /* Info.plist */,
 				978DDB6927C175AD7ACA0990 /* MacConnection.swift */,
 				5625809FB39A09B23BA53F6A /* MacServer.swift */,
@@ -240,6 +243,7 @@
 				63D037339B0AEF9913E8CBEA /* DebugLog.swift in Sources */,
 				495DFBD793D19CC13D8E544D /* DictationSession.swift in Sources */,
 				AA0A53A005A93A30A6B71D66 /* HistoryView.swift in Sources */,
+				E54A77300B236704AC863A03 /* HostAppObserver.swift in Sources */,
 				B7F3166C47627344B70A115C /* MacConnection.swift in Sources */,
 				2C5ED34A55056D7A268EDA3C /* MacServer.swift in Sources */,
 				1BD1B7C17630DFE7C9F7F9D8 /* ReturnToPreviousApp.swift in Sources */,

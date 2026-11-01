@@ -6,6 +6,7 @@ struct ContentView: View {
     @Binding var openedFromKeyboard: Bool
     @EnvironmentObject private var session: DictationSession
     @EnvironmentObject private var mac: MacConnection
+    @EnvironmentObject private var returner: ReturnController
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var micPermission = AVAudioApplication.shared.recordPermission
@@ -86,7 +87,10 @@ struct ContentView: View {
             if phase == .active { Task { await refresh(checkMac: !mac.isConnected) } }
         }
         .onChange(of: session.isActive) { _, active in
-            if !active { openedFromKeyboard = false }
+            if !active {
+                openedFromKeyboard = false
+                returner.reset()
+            }
         }
     }
 
@@ -124,14 +128,29 @@ struct ContentView: View {
         Section {
             if session.isStarting {
                 Label { Text("Starting the mic…") } icon: { ProgressView() }
-            } else if session.phase == .recording {
-                Label("Listening. Tap ◀ in the top-left corner to go back to your app; tap the mic there when you're done.",
-                      systemImage: "waveform")
-                    .foregroundStyle(.red)
+            } else if returner.status == .returning {
+                Label { Text("Going back to your app…") } icon: { ProgressView() }
             } else if session.isActive {
-                Label("Mic is ready. Tap ◀ in the top-left corner to go back, then use the mic.",
-                      systemImage: "arrow.uturn.backward.circle.fill")
-                    .foregroundStyle(.green)
+                VStack(alignment: .leading, spacing: 10) {
+                    if session.phase == .recording {
+                        Label("Listening. Go back to your app and tap the mic there when you're done.", systemImage: "waveform")
+                            .foregroundStyle(.red)
+                    } else {
+                        Label("Mic is ready. Go back to your app to dictate.", systemImage: "mic.fill")
+                            .foregroundStyle(.green)
+                    }
+                    if case .manual(let host?) = returner.status {
+                        Button {
+                            returner.reopen(host)
+                        } label: {
+                            Label("Back to \(host.name)", systemImage: "arrow.uturn.backward")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    Text("Swipe right along the bottom edge of the screen, or tap ◀ in the top-left corner.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

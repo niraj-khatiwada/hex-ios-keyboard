@@ -28,10 +28,16 @@ typed into whatever app you're using.
 ```
 
 iOS doesn't let keyboards use the microphone. So the keyboard remote-controls its own app,
-which records in the background. When no session is running, pressing the mic opens the app,
-which starts the mic, **starts recording right away**, and tries to jump back to the app you
-were in. If iOS doesn't allow the jump, tap **◀** in the top-left corner; recording is already
-running, so tap the mic when you're done. Wispr Flow and Raycast's keyboard work the same way.
+which records in the background. When no session is running, tapping the mic opens the app,
+which starts the mic, **starts recording right away**, and sends you back to the app you were in
+(about a second end to end). Wispr Flow and Raycast's keyboard work the same way.
+
+How the return works: since iOS 26.4 a keyboard can't see which app it's in, but UIKit in the
+main app briefly receives it (`_UIRemoteKeyboards.currentState.sourceBundleIdentifier`, a private
+detail). The app watches for it from launch, looks the app up in a built-in list of about 30
+common apps (Notes, Messages, Mail, WhatsApp, Slack, Gmail, …) and reopens it by its link, e.g.
+`mobilenotes://`. iOS may ask "Open in Notes?" the first time; tap **Open**. For apps that aren't
+in the list, swipe right along the bottom edge or tap **◀**; recording is already running.
 
 ## Requirements
 
@@ -165,7 +171,8 @@ the Mac transcribes them.
 |---|---|
 | "Can't find your Mac" | Check that `bun start` is running and both devices are on the same Wi-Fi. On the Mac, allow incoming connections for `bun` (System Settings → Network → Firewall). |
 | Tapping the mic does nothing | Turn on **Allow Full Access** for hex-ios-keyboard. |
-| The keyboard opens the app every time | That's how a new session starts. If it doesn't jump back by itself, tap ◀; recording is already running. Raise **Keep the mic ready for** to need this less often. |
+| The keyboard opens the app every time | That's how a new session starts. Raise **Keep the mic ready for** to need this less often. |
+| It doesn't go back to my app by itself | That app isn't in the list in `ios/VoiceKeyboard/ReturnToPreviousApp.swift`. Swipe back or tap **Back to <App>** for now; the debug log's `host app seen:` line shows its bundle ID so it can be added. |
 | "Untrusted Developer" or the app won't open | Settings → General → VPN & Device Management → trust your Apple ID. With a free Apple ID, reinstall from Xcode every 7 days. |
 | Text comes back empty | Open the clip in the dashboard's History and play it. If it's silent, tap **Mic off** and dictate again to start a fresh session. |
 | Hex engine shows "Not working" | Check that Hex is in `/Applications`, or set `HEX_BIN`. The error is shown on the dashboard. |

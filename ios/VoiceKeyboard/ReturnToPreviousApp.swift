@@ -1,129 +1,166 @@
-import ObjectiveC
-import UIKit
+import SwiftUI
 
-/// Goes back to the app the user was typing in after the keyboard opened us.
-///
-/// There's no public API for this. Two private routes, tried in order:
-/// 1. The status bar's "◀ Notes" back link (UIKit's `_systemNavigationAction`).
-/// 2. Opening the host app by bundle ID, if the keyboard could tell us which app that was.
-/// Fine for a sideloaded app; if both fail, the user taps ◀ themselves.
+/// An app we can send the user back to: the link that opens it and its name for the
+/// "Back to <App>" button.
+struct HostApp: Equatable {
+    let url: URL
+    let name: String
+}
+
+/// Apps we know how to reopen, by bundle ID. Reopening by link returns to the app, not
+/// necessarily the exact chat or page; iOS decides what it restores.
+enum HostAppCatalog {
+    private static let entries: [String: (url: String, name: String)] = [
+        // Apple
+        "com.apple.mobilenotes": ("mobilenotes://", "Notes"),
+        "com.apple.MobileSMS": ("sms://", "Messages"),
+        "com.apple.mobilemail": ("message://", "Mail"),
+        "com.apple.reminders": ("x-apple-reminderkit://", "Reminders"),
+        "com.apple.mobilesafari": ("x-web-search://", "Safari"),
+        // Messaging
+        "net.whatsapp.WhatsApp": ("whatsapp://send", "WhatsApp"),
+        "com.whatsapp.WhatsApp": ("whatsapp://send", "WhatsApp"),
+        "net.whatsapp.WhatsAppSMB": ("whatsapp-business://", "WhatsApp Business"),
+        "ph.telegra.Telegraph": ("tg://", "Telegram"),
+        "org.whispersystems.signal": ("sgnl://", "Signal"),
+        "com.facebook.Messenger": ("fb-messenger://", "Messenger"),
+        "com.viber": ("viber://", "Viber"),
+        "jp.naver.line": ("line://", "LINE"),
+        "com.skype.skype": ("skype://", "Skype"),
+        "com.hammerandchisel.discord": ("discord://", "Discord"),
+        "com.discord.Discord": ("discord://", "Discord"),
+        "com.snapchat.snapchat": ("snapchat://", "Snapchat"),
+        "com.toyopagroup.picaboo": ("snapchat://", "Snapchat"),
+        // Work
+        "com.tinyspeck.chatlyio": ("slack://", "Slack"),
+        "com.microsoft.skype.teams": ("msteams://", "Teams"),
+        "com.microsoft.teams": ("msteams://", "Teams"),
+        "com.microsoft.Office.Outlook": ("ms-outlook://", "Outlook"),
+        "com.google.Gmail": ("googlegmail://", "Gmail"),
+        "com.google.Docs": ("googledocs://", "Google Docs"),
+        "notion.id": ("notion://", "Notion"),
+        "us.zoom.videomeetings": ("zoomus://", "Zoom"),
+        "com.linkedin.LinkedIn": ("linkedin://", "LinkedIn"),
+        // Social & other
+        "com.burbn.instagram": ("instagram://", "Instagram"),
+        "com.atebits.Tweetie2": ("twitter://", "X"),
+        "com.facebook.Facebook": ("fb://", "Facebook"),
+        "com.reddit.Reddit": ("reddit://", "Reddit"),
+        "com.zhiliaoapp.musically": ("snssdk1128://", "TikTok"),
+        "com.openai.chat": ("chatgpt://", "ChatGPT"),
+        "com.google.chrome.ios": ("googlechrome://", "Chrome"),
+    ]
+
+    private static let lowercased: [String: (url: String, name: String)] = {
+        Dictionary(entries.map { ($0.key.lowercased(), $0.value) }, uniquingKeysWith: { first, _ in first })
+    }()
+
+    static func lookup(_ bundleID: String?) -> HostApp? {
+        guard let id = bundleID?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty,
+              let entry = entries[id] ?? lowercased[id.lowercased()],
+              let url = URL(string: entry.url)
+        else { return nil }
+        return HostApp(url: url, name: entry.name)
+    }
+}
+
+/// Sends the user back to the app they were typing in after the keyboard opened us, the way
+/// Wispr Flow does on iOS 26.4+: learn the host from `HostAppObserver`, then reopen it by link.
 @MainActor
-enum ReturnToPreviousApp {
-    static func now(hostBundleID: String?) {
-        logRuntimeHints()
-        attempt(remaining: 12, hostBundleID: hostBundleID)
+final class ReturnController: ObservableObject {
+    static let shared = ReturnController()
+
+    enum Status: Equatable {
+        case idle
+        case returning
+        /// Went back automatically.
+        case returned(HostApp)
+        /// Couldn't go back by ourselves; the user swipes back (or taps "Back to <App>").
+        case manual(HostApp?)
     }
 
-    /// The back link can take a moment to appear after launch, so retry for up to 3 seconds.
-    private static func attempt(remaining: Int, hostBundleID: String?) {
-        // Right after a URL opens the app it's still `.inactive`; only give up once it's gone.
-        if UIApplication.shared.applicationState == .background {
-            DebugLog.log("return: app already in the background")
+    @Published private(set) var status: Status = .idle
+
+    /// How far back an observed host still counts as this handoff's, so a warm launch doesn't
+    /// return to an app the user left minutes ago.
+    private static let lookBack: TimeInterval = 5
+    /// How long to wait for the host to show up on a cold launch.
+    private static let hostWait: TimeInterval = 2
+    /// The whole return must finish within this, or we show the swipe-back hint.
+    private static let deadline: TimeInterval = 4.5
+
+    private var attempt = UUID()
+
+    /// `keyboardHost` is what the keyboard detected itself (works before iOS 26.4).
+    func returnToHost(keyboardHost: String?, invokedAt: Date) {
+        let attempt = UUID()
+        self.attempt = attempt
+        status = .returning
+        let deadline = Date().addingTimeInterval(Self.deadline)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.deadline) { [weak self] in
+            guard let self, self.attempt == attempt, self.status == .returning else { return }
+            DebugLog.log("return: timed out")
+            self.status = .manual(nil)
+        }
+
+        if let keyboardHost, !keyboardHost.isEmpty {
+            guard let host = HostAppCatalog.lookup(keyboardHost) else {
+                DebugLog.log("return: \(keyboardHost) isn't in the app list")
+                status = .manual(nil)
+                return
+            }
+            open(host, attempt: attempt, deadline: deadline, retriesLeft: 4)
             return
         }
-        if sendBackLink() { return }
-        if remaining > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                attempt(remaining: remaining - 1, hostBundleID: hostBundleID)
-            }
-            return
-        }
-        if let hostBundleID, open(bundleID: hostBundleID) { return }
-        DebugLog.log("return: no route worked; user taps ◀")
-    }
 
-    // MARK: Route 1 — the "◀ App" back link
-
-    private static func sendBackLink() -> Bool {
-        guard let action = systemNavigationAction() else { return false }
-        let send = NSSelectorFromString("sendResponseForDestination:")
-        guard action.responds(to: send) else {
-            DebugLog.log("return: navigation action can't send")
-            return false
-        }
-        let destinations = (action.value(forKey: "destinations") as? [NSNumber]) ?? []
-        guard let destination = destinations.first else {
-            DebugLog.log("return: navigation action has no destinations")
-            return false
-        }
-        typealias Send = @convention(c) (AnyObject, Selector, UInt) -> Void
-        unsafeBitCast(action.method(for: send), to: Send.self)(action, send, destination.uintValue)
-        DebugLog.log("return: sent back link (destination \(destination))")
-        return true
-    }
-
-    private static func systemNavigationAction() -> NSObject? {
-        let app = UIApplication.shared
-        for name in ["_systemNavigationAction", "systemNavigationAction"] {
-            let selector = NSSelectorFromString(name)
-            if app.responds(to: selector), let action = app.perform(selector)?.takeUnretainedValue() as? NSObject {
-                return action
-            }
-            if let ivar = class_getInstanceVariable(UIApplication.self, name),
-               let action = object_getIvar(app, ivar) as? NSObject {
-                return action
-            }
-        }
-        // Newer UIKit keeps it on the scene.
-        for scene in app.connectedScenes {
-            for name in ["_systemNavigationAction", "systemNavigationAction"] {
-                let selector = NSSelectorFromString(name)
-                if scene.responds(to: selector), let action = scene.perform(selector)?.takeUnretainedValue() as? NSObject {
-                    return action
+        HostAppObserver.shared.waitForHost(since: invokedAt.addingTimeInterval(-Self.lookBack), timeout: Self.hostWait) { [weak self] bundle in
+            Task { @MainActor in
+                guard let self, self.attempt == attempt else { return }
+                guard let bundle else {
+                    DebugLog.log("return: couldn't tell which app you came from")
+                    self.status = .manual(nil)
+                    return
                 }
-            }
-        }
-        return nil
-    }
-
-    // MARK: Route 2 — open the host app by bundle ID
-
-    private static func open(bundleID: String) -> Bool {
-        guard let workspaceClass = NSClassFromString("LSApplicationWorkspace") as? NSObject.Type,
-              let workspace = workspaceClass.perform(NSSelectorFromString("defaultWorkspace"))?.takeUnretainedValue() as? NSObject
-        else {
-            DebugLog.log("return: LSApplicationWorkspace unavailable")
-            return false
-        }
-        let openSelector = NSSelectorFromString("openApplicationWithBundleID:")
-        guard workspace.responds(to: openSelector) else {
-            DebugLog.log("return: workspace can't open by bundle ID")
-            return false
-        }
-        let result = workspace.perform(openSelector, with: bundleID)
-        let opened = result != nil
-        DebugLog.log("return: open \(bundleID) → \(opened)")
-        return opened
-    }
-
-    // MARK: Diagnostics
-
-    /// Logs what this iOS version exposes, so a failed return tells us what to try next.
-    private static func logRuntimeHints() {
-        func names(_ cls: AnyClass, matching needle: String) -> [String] {
-            var found: [String] = []
-            var count: UInt32 = 0
-            if let methods = class_copyMethodList(cls, &count) {
-                for i in 0..<Int(count) {
-                    let name = NSStringFromSelector(method_getName(methods[i]))
-                    if name.localizedCaseInsensitiveContains(needle) { found.append(name) }
+                guard let host = HostAppCatalog.lookup(bundle) else {
+                    DebugLog.log("return: \(bundle) isn't in the app list")
+                    self.status = .manual(nil)
+                    return
                 }
-                free(methods)
+                self.open(host, attempt: attempt, deadline: deadline, retriesLeft: 4)
             }
-            if let ivars = class_copyIvarList(cls, &count) {
-                for i in 0..<Int(count) {
-                    if let raw = ivar_getName(ivars[i]) {
-                        let name = String(cString: raw)
-                        if name.localizedCaseInsensitiveContains(needle) { found.append("ivar " + name) }
+        }
+    }
+
+    /// The "Back to <App>" button.
+    func reopen(_ host: HostApp) {
+        UIApplication.shared.open(host.url)
+    }
+
+    func reset() {
+        attempt = UUID()
+        status = .idle
+    }
+
+    private func open(_ host: HostApp, attempt: UUID, deadline: Date, retriesLeft: Int) {
+        guard self.attempt == attempt else { return }
+        // On a cold launch `open` can fail while we're still becoming active; that's worth a
+        // retry. A failure while active means the user cancelled iOS's "Open <App>?" prompt.
+        let wasActive = UIApplication.shared.applicationState == .active
+        UIApplication.shared.open(host.url) { [weak self] opened in
+            Task { @MainActor in
+                guard let self, self.attempt == attempt else { return }
+                if opened {
+                    DebugLog.log("return: opened \(host.name)")
+                    self.status = .returned(host)
+                } else if !wasActive, retriesLeft > 0, Date() < deadline {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.open(host, attempt: attempt, deadline: deadline, retriesLeft: retriesLeft - 1)
                     }
+                } else {
+                    DebugLog.log("return: couldn't open \(host.name)")
+                    self.status = .manual(host)
                 }
-                free(ivars)
             }
-            return found
-        }
-        DebugLog.log("hints UIApplication: \(names(UIApplication.self, matching: "navigation"))")
-        if let scene = UIApplication.shared.connectedScenes.first {
-            DebugLog.log("hints \(type(of: scene)): \(names(type(of: scene), matching: "navigation"))")
         }
     }
 }
