@@ -9,15 +9,19 @@
 /* Begin PBXBuildFile section */
 		00D82D43A0B7AF21A16150AA /* VoiceKeyboardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8EC4EDBF5CE50DAC1554070 /* VoiceKeyboardApp.swift */; };
 		0B9727ED06F97FE9C39F5C43 /* TapToDismissKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BCD191BCAC78D037D717DA0 /* TapToDismissKeyboard.swift */; };
+		1BD1B7C17630DFE7C9F7F9D8 /* ReturnToPreviousApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20164E960129AB9C2EE78D88 /* ReturnToPreviousApp.swift */; };
 		1E3C638F08AA178A9AB97FFA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4405398C5C5D7E515CBC93A7 /* Assets.xcassets */; };
 		1E6E103594F70B900D47162D /* SharedState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE47EBEA5F71A743A989C35E /* SharedState.swift */; };
 		2C5ED34A55056D7A268EDA3C /* MacServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5625809FB39A09B23BA53F6A /* MacServer.swift */; };
 		357AB2AC3B0287C1017641EB /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 451DC896D4B2299B9858A9E0 /* ContentView.swift */; };
 		495DFBD793D19CC13D8E544D /* DictationSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A8CAB84F66F59AE415404D4 /* DictationSession.swift */; };
 		60F695AB50CB690E4B45F663 /* KeyboardModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729EADB3A2469667CBF51633 /* KeyboardModel.swift */; };
+		63D037339B0AEF9913E8CBEA /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C038EF06AFF9290AEBFD60A0 /* DebugLog.swift */; };
+		66F6BA88BADEA18A343C511A /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C038EF06AFF9290AEBFD60A0 /* DebugLog.swift */; };
 		7E47E0C7F24428DCB8296622 /* DarwinNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925B6908CAAF8D67F5C64162 /* DarwinNotifications.swift */; };
 		94E2DE01BBC98E59C11CCA6A /* KeyboardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B923D85B94952FBDDE9A92F8 /* KeyboardViewController.swift */; };
 		A78D57DC482D448D97DF7B87 /* DarwinNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925B6908CAAF8D67F5C64162 /* DarwinNotifications.swift */; };
+		AA0A53A005A93A30A6B71D66 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4606EA34661D42E48816705 /* HistoryView.swift */; };
 		AFB466ACCC29F5590F11ABBF /* Keyboard.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 89DAA6EE1CE7DB36BFD8920A /* Keyboard.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B7F3166C47627344B70A115C /* MacConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 978DDB6927C175AD7ACA0990 /* MacConnection.swift */; };
 		C35C9885B07F4B01E331D097 /* KeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B03D97518DEAE1E051B255DA /* KeyboardView.swift */; };
@@ -50,6 +54,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		20164E960129AB9C2EE78D88 /* ReturnToPreviousApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReturnToPreviousApp.swift; sourceTree = "<group>"; };
 		21979AC8D4F4DBC174A6B753 /* Keyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Keyboard.entitlements; sourceTree = "<group>"; };
 		2BCD191BCAC78D037D717DA0 /* TapToDismissKeyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapToDismissKeyboard.swift; sourceTree = "<group>"; };
 		3F5F9C27EB67E2A4E1AC0FE1 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
@@ -66,7 +71,9 @@
 		AE47EBEA5F71A743A989C35E /* SharedState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedState.swift; sourceTree = "<group>"; };
 		B03D97518DEAE1E051B255DA /* KeyboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardView.swift; sourceTree = "<group>"; };
 		B923D85B94952FBDDE9A92F8 /* KeyboardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardViewController.swift; sourceTree = "<group>"; };
+		C038EF06AFF9290AEBFD60A0 /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		C8388AF1731B2CA42619FBC3 /* VoiceKeyboard.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = VoiceKeyboard.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D4606EA34661D42E48816705 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		D8EC4EDBF5CE50DAC1554070 /* VoiceKeyboardApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceKeyboardApp.swift; sourceTree = "<group>"; };
 		F027DB823287710F4B277DE0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -79,9 +86,11 @@
 				3F5F9C27EB67E2A4E1AC0FE1 /* AudioRecorder.swift */,
 				451DC896D4B2299B9858A9E0 /* ContentView.swift */,
 				7A8CAB84F66F59AE415404D4 /* DictationSession.swift */,
+				D4606EA34661D42E48816705 /* HistoryView.swift */,
 				962D9EFC321E0B07F3BEA518 /* Info.plist */,
 				978DDB6927C175AD7ACA0990 /* MacConnection.swift */,
 				5625809FB39A09B23BA53F6A /* MacServer.swift */,
+				20164E960129AB9C2EE78D88 /* ReturnToPreviousApp.swift */,
 				2BCD191BCAC78D037D717DA0 /* TapToDismissKeyboard.swift */,
 				976E19C7C66374255A718742 /* VoiceKeyboard.entitlements */,
 				D8EC4EDBF5CE50DAC1554070 /* VoiceKeyboardApp.swift */,
@@ -103,6 +112,7 @@
 			isa = PBXGroup;
 			children = (
 				925B6908CAAF8D67F5C64162 /* DarwinNotifications.swift */,
+				C038EF06AFF9290AEBFD60A0 /* DebugLog.swift */,
 				AE47EBEA5F71A743A989C35E /* SharedState.swift */,
 			);
 			path = Shared;
@@ -227,9 +237,12 @@
 				DD1F3008D6C8F3072077A07A /* AudioRecorder.swift in Sources */,
 				357AB2AC3B0287C1017641EB /* ContentView.swift in Sources */,
 				A78D57DC482D448D97DF7B87 /* DarwinNotifications.swift in Sources */,
+				63D037339B0AEF9913E8CBEA /* DebugLog.swift in Sources */,
 				495DFBD793D19CC13D8E544D /* DictationSession.swift in Sources */,
+				AA0A53A005A93A30A6B71D66 /* HistoryView.swift in Sources */,
 				B7F3166C47627344B70A115C /* MacConnection.swift in Sources */,
 				2C5ED34A55056D7A268EDA3C /* MacServer.swift in Sources */,
+				1BD1B7C17630DFE7C9F7F9D8 /* ReturnToPreviousApp.swift in Sources */,
 				D4960737DB175DFB98AAE4E8 /* SharedState.swift in Sources */,
 				0B9727ED06F97FE9C39F5C43 /* TapToDismissKeyboard.swift in Sources */,
 				00D82D43A0B7AF21A16150AA /* VoiceKeyboardApp.swift in Sources */,
@@ -241,6 +254,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7E47E0C7F24428DCB8296622 /* DarwinNotifications.swift in Sources */,
+				66F6BA88BADEA18A343C511A /* DebugLog.swift in Sources */,
 				60F695AB50CB690E4B45F663 /* KeyboardModel.swift in Sources */,
 				C35C9885B07F4B01E331D097 /* KeyboardView.swift in Sources */,
 				94E2DE01BBC98E59C11CCA6A /* KeyboardViewController.swift in Sources */,

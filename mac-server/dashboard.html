@@ -206,10 +206,10 @@ function renderStatus() {
   $("hex-state").innerHTML = hexReady ? `Ready · ${esc(s.model)}` : esc(hexText[0] + (hexText[1] ? " · " + hexText[1] : ""))
 
   const seen = s.phone?.lastSeen
-  const online = seen && Date.now() - seen < 5 * 60 * 1000
+  const online = s.phoneLive
   const everSeen = !!seen || s.historyCount > 0
   $("s-phone").textContent = online ? "Connected" : everSeen ? "Paired" : "Not connected"
-  $("s-phone-d").textContent = seen ? `Last seen ${ago(seen)} · ${s.phone.ip.replace("::ffff:", "")}` : everSeen ? "Not seen since the server started" : "Scan the QR code below"
+  $("s-phone-d").textContent = online ? `Live · ${s.phone.ip.replace("::ffff:", "")}` : seen ? `Last seen ${ago(seen)} · ${s.phone.ip.replace("::ffff:", "")}` : everSeen ? "Not seen since the server started" : "Scan the QR code below"
   $("install-state").textContent = everSeen ? "Installed" : "Waiting for your iPhone…"
   $("pair-state").textContent = everSeen ? "Connected" : "Not connected yet"
   $("kb-state").textContent = s.historyCount > 0 ? `${s.historyCount} dictation${s.historyCount === 1 ? "" : "s"} so far` : "Waiting for your first dictation…"

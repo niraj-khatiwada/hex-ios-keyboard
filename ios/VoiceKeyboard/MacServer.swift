@@ -1,6 +1,17 @@
 import Foundation
 import Network
 
+/// One dictation, as the Mac's history stores it (text only — audio stays on the Mac).
+struct HistoryItem: Decodable, Identifiable, Equatable {
+    let id: String
+    /// Milliseconds since 1970.
+    let at: Double
+    let text: String
+    let error: String?
+
+    var date: Date { Date(timeIntervalSince1970: at / 1000) }
+}
+
 /// Talks to the Bun server in `mac-server/`.
 struct MacServerClient {
     var baseURL: URL
@@ -14,11 +25,20 @@ struct MacServerClient {
         var errorDescription: String? { message }
     }
 
-    func health() async throws -> Health {
-        var request = URLRequest(url: baseURL.appendingPathComponent("health"), timeoutInterval: 5)
+    func health(timeout: TimeInterval = 5) async throws -> Health {
+        var request = URLRequest(url: baseURL.appendingPathComponent("health"), timeoutInterval: timeout)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, _) = try await URLSession.shared.data(for: request)
         return try JSONDecoder().decode(Health.self, from: data)
+    }
+
+    func history(limit: Int = 500) async throws -> [HistoryItem] {
+        var components = URLComponents(url: baseURL.appendingPathComponent("history"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        var request = URLRequest(url: components.url!, timeoutInterval: 10)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return try JSONDecoder().decode([HistoryItem].self, from: data)
     }
 
     func transcribe(wav: Data) async throws -> String {

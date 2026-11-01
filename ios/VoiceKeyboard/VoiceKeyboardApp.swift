@@ -13,11 +13,22 @@ struct VoiceKeyboardApp: App {
                 .environmentObject(mac)
                 .onOpenURL { url in
                     guard url.scheme == "voicekb" else { return }
-                    // voicekb://pair?url=…&token=… comes from the QR code the Mac prints.
+                    // voicekb://pair?url=…&token=… comes from the QR code on the Mac dashboard.
                     if mac.pair(with: url) { return }
-                    // voicekb://start comes from the keyboard when no session is running.
+                    // voicekb://open is the keyboard's open-app button: just show the app.
+                    guard url.host == "start" else { return }
+                    // voicekb://start comes from the keyboard when no session is running:
+                    // start the mic, start recording, and go straight back to the user's app.
                     openedFromKeyboard = true
-                    Task { await session.startSession() }
+                    let host = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                        .queryItems?.first(where: { $0.name == "host" })?.value
+                    DebugLog.log("opened by keyboard, host=\(host ?? "unknown")")
+                    Task {
+                        await session.startSession()
+                        guard session.isActive else { return }
+                        session.beginRecordingFromKeyboard()
+                        ReturnToPreviousApp.now(hostBundleID: host)
+                    }
                 }
         }
     }

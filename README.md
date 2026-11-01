@@ -1,11 +1,14 @@
 # hex-ios-keyboard
 
-An iPhone keyboard with a single button: **hold to talk, let go to type.** Your voice is
+An iPhone keyboard built around one button: **hold to talk, let go to type.** Your voice is
 transcribed on your Mac by [Hex](https://github.com/vkpdeveloper/anomaly-hex), and the text is
 typed into whatever app you're using.
 
-- One big mic button, plus 🌐, return and delete keys
+- One big mic button: hold to talk, or switch to tap to start / tap to stop
+- 🌐, open-app, space, return and delete keys, plus a **Mic off** button
 - Haptic tap when listening starts and when it stops
+- Live connection to the Mac: the app knows right away when the server stops or comes back
+- Text-only history on the phone, with copy and timestamps
 - Transcription runs locally on your Mac (about 70–100 ms per clip with Parakeet)
 - A Mac dashboard covers setup, live status and a searchable history with audio playback
 - Pair the phone by scanning a QR code; no IP addresses to type
@@ -32,9 +35,10 @@ This is a personal tool that you install from Xcode; it's not on the App Store.
 ```
 
 iOS doesn't let keyboards use the microphone. So the keyboard remote-controls its own app,
-which records in the background. The first time you dictate (and again after 5 idle minutes),
-the keyboard opens the app to start a session. Tap **◀** in the top-left to go back, then hold
-the mic.
+which records in the background. When no session is running, pressing the mic opens the app,
+which starts the mic, **starts recording right away**, and tries to jump back to the app you
+were in. If iOS doesn't allow the jump, tap **◀** in the top-left corner; recording is already
+running, so tap the mic when you're done. Wispr Flow and Raycast's keyboard work the same way.
 
 ## Requirements
 
@@ -105,6 +109,11 @@ Open **hex-ios-keyboard**. It shows three steps that tick themselves off:
 In any app: tap 🌐 to switch to hex-ios-keyboard. **Hold** the mic. When you feel the tap and
 see *Listening…*, talk. **Let go** and the text is typed in.
 
+- **Hold to talk** (top-left toggle, on by default): turn it off to tap once to start and tap
+  again to send.
+- **Mic off** (top-right, while a session is running): turns the mic and the orange dot off.
+- **⚙** opens the app, and **space**, **return** and **delete** work as usual.
+
 ## Mac dashboard
 
 <http://localhost:8787> only opens on the Mac itself; other devices get `403`.
@@ -130,17 +139,23 @@ then pair the phone again.
 | `HEX_KEYBOARD_TOKEN` | stored in `~/.config/hex-ios-keyboard/token` | Override the pairing code |
 | `NO_OPEN` | not set | Set to `1` to skip opening the dashboard in a browser |
 
-## Microphone modes
+## Microphone sessions
 
-In the app under **Microphone**:
+iOS only lets an app start the mic while it's on screen; started from the background, it records
+silence. So a session keeps the mic running in the background (orange dot), and audio is only
+kept while you're dictating. Everything else is thrown away on the phone.
 
-- **Mic only while holding** (default): between holds the app stays alive by playing silence,
-  and the mic (and the orange dot) turns on only while you hold. If iOS refuses to turn the mic
-  on in the background, the app switches to the other mode by itself and tells you.
-- **Off:** the mic stays on during a session so recording starts instantly. Audio outside a hold
-  is thrown away on the phone.
+A session ends after the time you pick in the app under **Microphone → Keep the mic ready for**
+(1, 5, 15, 30 or 60 minutes, or until you turn it off; 5 by default). You can also end it with
+**Mic off** on the keyboard or **Turn off** in the app. After a call or Siri, the session
+resumes if iOS gives the mic back.
 
-Either way, a session ends after 5 minutes without a dictation, or when you tap **Turn off**.
+## History on the phone
+
+In the app, tap **Show history** to see everything you've dictated, newest first, with
+timestamps. It's text only; the audio stays on the Mac. Tap the copy icon, swipe left, or
+long-press to copy. You can search it and pull to refresh, and new dictations appear as soon as
+the Mac transcribes them.
 
 ## Troubleshooting
 
@@ -148,31 +163,34 @@ Either way, a session ends after 5 minutes without a dictation, or when you tap 
 |---|---|
 | "Can't find your Mac" | Check that `bun start` is running and both devices are on the same Wi-Fi. On the Mac, allow incoming connections for `bun` (System Settings → Network → Firewall). |
 | Holding the mic does nothing | Turn on **Allow Full Access** for hex-ios-keyboard. |
-| The keyboard opens the app every time | That's how a new session starts. Tap ◀ to go back; holds work until the session times out. |
+| The keyboard opens the app every time | That's how a new session starts. If it doesn't jump back by itself, tap ◀; recording is already running. Raise **Keep the mic ready for** to need this less often. |
 | "Untrusted Developer" or the app won't open | Settings → General → VPN & Device Management → trust your Apple ID. With a free Apple ID, reinstall from Xcode every 7 days. |
-| Text comes back empty | Open the clip in the dashboard's History and play it. If it's silent, turn **Mic only while holding** off. |
+| Text comes back empty | Open the clip in the dashboard's History and play it. If it's silent, tap **Mic off** and dictate again to start a fresh session. |
 | Hex engine shows "Not working" | Check that Hex is in `/Applications`, or set `HEX_BIN`. The error is shown on the dashboard. |
 
 ## Project layout
 
 ```
 mac-server/
-  server.ts          Bridge to Hex: POST /transcribe, GET /health, Bonjour, dashboard API
+  server.ts          Bridge to Hex: POST /transcribe, GET /health, GET /history, WebSocket /ws,
+                     Bonjour, dashboard API
   dashboard.html     Setup, status and history page
 ios/
   project.yml        XcodeGen spec (the .xcodeproj is generated from this)
-  VoiceKeyboard/     The app: setup screen, background recorder, Mac connection
+  VoiceKeyboard/     The app: setup screen, background recorder, Mac connection, history
   Keyboard/          The keyboard extension: hold-to-talk UI and haptics
-  Shared/            State shared through the App Group, and Darwin notifications
+  Shared/            State shared through the App Group, Darwin notifications, debug log
   tools/make_icon.py Draws the app icon
 ```
 
 How the pieces talk to each other:
 
-- **Keyboard → app:** Darwin notifications (`start`, `stop`, `cancel`)
+- **Keyboard → app:** Darwin notifications (`start`, `stop`, `cancel`, `endSession`)
 - **App → keyboard:** `state.json` in the App Group container (`group.com.niraj.voicekeyboard`),
-  which the keyboard reads 10 times a second
+  plus a `stateChanged` Darwin notification on every change so the keyboard reacts immediately
 - **App → Mac:** `POST /transcribe` with a WAV body and `Authorization: Bearer <code>`
+- **Mac → app:** a WebSocket at `/ws?token=<code>` that pushes engine status and new history
+  entries; the app reconnects within a second when the server comes back
 - **Pairing:** the QR code encodes `voicekb://pair?url=…&token=…`
 
 ### Development
@@ -182,3 +200,5 @@ How the pieces talk to each other:
 - To redraw the icon: `python3 ios/tools/make_icon.py ios/VoiceKeyboard/Assets.xcassets/AppIcon.appiconset/AppIcon.png`
   (needs Pillow).
 - To type-check the server: `cd mac-server && bunx tsc --noEmit`.
+- The keyboard and the app both write to `Library/debug.log` in the App Group. Pull it with
+  `xcrun devicectl device copy from --device <id> --domain-type appGroupDataContainer --domain-identifier group.com.niraj.voicekeyboard --source Library/debug.log --destination debug.log`.

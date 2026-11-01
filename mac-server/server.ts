@@ -48,6 +48,21 @@ type HexState =
 let hexState: HexState = { state: "starting" }
 let phone: { lastSeen: number; ip: string } | undefined
 
+// Live connections from the iPhone app. Status is pushed the moment it changes, and a closed
+// socket tells the phone the server is gone right away.
+type Socket = import("bun").ServerWebSocket<{ ip: string }>
+const sockets = new Set<Socket>()
+
+function statusMessage() {
+  return JSON.stringify({ type: "status", model: MODEL, hex: hexState.state, ready: hexState.state === "ready" })
+}
+
+function setHexState(next: HexState) {
+  hexState = next
+  const message = statusMessage()
+  for (const ws of sockets) ws.send(message)
+}
+
 // MARK: Hex transcriber
 
 // Keep one transcriber alive so the model stays loaded between clips.
@@ -56,7 +71,7 @@ let starting: Promise<Hex.Transcriber> | undefined
 
 function getTranscriber(): Promise<Hex.Transcriber> {
   if (transcriber) return Promise.resolve(transcriber)
-  hexState = { state: "starting" }
+  setHexState({ state: "starting" })
   starting ??= Hex.create({
     command: [HEX_BIN, "service", "--embedded"],
     model: MODEL,
@@ -64,20 +79,20 @@ function getTranscriber(): Promise<Hex.Transcriber> {
     onProgress: (p) => {
       if (p.type === "downloading") {
         const percent = p.totalBytes ? Math.round((p.downloadedBytes / p.totalBytes) * 100) : 0
-        hexState = { state: "downloading", percent }
+        setHexState({ state: "downloading", percent })
       } else if (p.type === "loading" || p.type === "verifying") {
-        hexState = { state: "loading" }
+        setHexState({ state: "loading" })
       }
     },
   })
     .then((t) => {
       transcriber = t
-      hexState = { state: "ready", pid: t.pid }
+      setHexState({ state: "ready", pid: t.pid })
       console.log(`[hex] ready: model=${t.model} pid=${t.pid}`)
       return t
     })
     .catch((err) => {
-      hexState = { state: "error", message: String(err?.message ?? err) }
+      setHexState({ state: "error", message: String(err?.message ?? err) })
       throw err
     })
     .finally(() => {
@@ -137,6 +152,14 @@ function readHistory(): HistoryEntry[] {
 function addHistory(entry: HistoryEntry, wav: Uint8Array) {
   writeFileSync(join(AUDIO_DIR, `${entry.id}.wav`), wav)
   appendFileSync(HISTORY_FILE, JSON.stringify(entry) + "\n")
+  // Push it to the phone's history screen right away.
+  const message = JSON.stringify({ type: "history", entry: phoneHistoryItem(entry) })
+  for (const ws of sockets) ws.send(message)
+}
+
+// What the phone sees: text and time only, never audio.
+function phoneHistoryItem(entry: HistoryEntry) {
+  return { id: entry.id, at: entry.at, text: entry.text, error: entry.error ?? null }
 }
 
 function clearHistory() {
@@ -170,7 +193,7 @@ function json(body: unknown, status = 200) {
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"])
 const dashboardFile = Bun.file(join(import.meta.dir, "dashboard.html"))
 
-const server = Bun.serve({
+const server = Bun.serve<{ ip: string }>({
   port: PORT,
   hostname: "0.0.0.0",
   maxRequestBodySize: MAX_BYTES,
@@ -180,6 +203,21 @@ const server = Bun.serve({
     const authed = req.headers.get("authorization") === `Bearer ${TOKEN}`
 
     // MARK: Phone API
+    // Live status for the iPhone app. The pairing code comes as ?token= because iOS's
+    // WebSocket API can't set headers on the upgrade request reliably.
+    if (url.pathname === "/ws") {
+      if (url.searchParams.get("token") !== TOKEN) return json({ error: "unauthorized" }, 401)
+      if (server.upgrade(req, { data: { ip } })) return undefined
+      return json({ error: "expected a WebSocket upgrade" }, 400)
+    }
+
+    // Text-only history for the phone's History screen.
+    if (url.pathname === "/history" && req.method === "GET") {
+      if (!authed) return json({ error: "unauthorized" }, 401)
+      const limit = Math.min(Number(url.searchParams.get("limit") ?? 500), 2000)
+      return json(readHistory().slice(0, limit).map(phoneHistoryItem))
+    }
+
     if (url.pathname === "/health") {
       if (authed) phone = { lastSeen: Date.now(), ip }
       return json({ ok: true, authed, model: MODEL, ready: hexState.state === "ready" })
@@ -229,6 +267,7 @@ const server = Bun.serve({
         model: MODEL,
         hex: hexState,
         phone,
+        phoneLive: sockets.size > 0,
         historyCount: readHistory().length,
       })
     }
@@ -266,6 +305,25 @@ const server = Bun.serve({
 
     return json({ error: "not found" }, 404)
   },
+  websocket: {
+    open(ws) {
+      sockets.add(ws)
+      phone = { lastSeen: Date.now(), ip: ws.data.ip }
+      ws.send(statusMessage())
+      console.log(`[phone] connected from ${ws.data.ip.replace("::ffff:", "")}`)
+    },
+    message(ws, message) {
+      phone = { lastSeen: Date.now(), ip: ws.data.ip }
+      if (message === "ping") ws.send("pong")
+    },
+    close(ws) {
+      sockets.delete(ws)
+      phone = { lastSeen: Date.now(), ip: ws.data.ip }
+      console.log("[phone] disconnected")
+    },
+    // iOS pings every few seconds; drop connections that go quiet (phone left the Wi-Fi).
+    idleTimeout: 30,
+  },
 })
 
 const bonjour = new Bonjour()
@@ -280,6 +338,8 @@ if (!process.env.NO_OPEN) Bun.spawn(["open", dashboardURL])
 getTranscriber().catch((err) => console.error("[hex] failed to start:", err))
 
 async function shutdown() {
+  // Close phone connections first so the app shows "server stopped" immediately.
+  server.stop(true)
   bonjour.unpublishAll(() => bonjour.destroy())
   await resetTranscriber()
   process.exit(0)

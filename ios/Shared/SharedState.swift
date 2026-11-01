@@ -70,9 +70,22 @@ enum Command: String, CaseIterable {
     case start = "com.niraj.voicekeyboard.start"
     case stop = "com.niraj.voicekeyboard.stop"
     case cancel = "com.niraj.voicekeyboard.cancel"
+    /// Turn the mic off and end the session.
+    case endSession = "com.niraj.voicekeyboard.endSession"
+    /// Sent by the app (not the keyboard) whenever its phase or result changes.
+    case stateChanged = "com.niraj.voicekeyboard.stateChanged"
 }
 
 /// URL the keyboard opens to wake the app and start a session.
 enum AppURL {
-    static let startSession = URL(string: "voicekb://start")!
+    /// Just brings the app to the front.
+    static let open = URL(string: "voicekb://open")!
+
+    /// `host` is the bundle ID of the app being typed in, when the keyboard can tell, so the
+    /// app can send the user back to it.
+    static func startSession(host: String?) -> URL {
+        var components = URLComponents(string: "voicekb://start")!
+        if let host { components.queryItems = [URLQueryItem(name: "host", value: host)] }
+        return components.url!
+    }
 }

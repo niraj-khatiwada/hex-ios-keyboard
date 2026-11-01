@@ -46,17 +46,24 @@ struct ContentView: View {
                 }
 
                 Section {
-                    Toggle("Mic only while holding", isOn: $session.micOnHold)
-                        .onChange(of: session.micOnHold) { _, _ in
-                            // Takes effect when the next session starts.
-                            session.endSession()
+                    NavigationLink {
+                        HistoryView()
+                    } label: {
+                        Label("Show history", systemImage: "clock.arrow.circlepath")
+                    }
+                }
+
+                Section {
+                    Picker("Keep the mic ready for", selection: $session.sessionMinutes) {
+                        ForEach(DictationSession.sessionLengthChoices, id: \.self) { minutes in
+                            Text(Self.sessionLengthLabel(minutes)).tag(minutes)
                         }
+                    }
+                    .onChange(of: session.sessionMinutes) { _, _ in session.sessionLengthChanged() }
                 } header: {
                     Text("Microphone")
                 } footer: {
-                    Text(session.micOnHold
-                         ? "Experimental. The mic is off between holds, and the orange mic dot shows only while you hold. If iOS won't allow it, this turns off by itself."
-                         : "The mic stays on (orange dot) during a session so it can record the moment you hold. Audio is only kept while you hold.")
+                    Text("iOS only lets this app start the mic while it's on screen. So the first hold opens the app to start a session, and the mic then stays on in the background (orange dot) until the session ends. Audio is only kept while you hold the button.")
                 }
             }
             .navigationTitle("hex-ios-keyboard")
@@ -66,6 +73,7 @@ struct ContentView: View {
             .animation(.default, value: mac.status)
         }
         .task { await refresh(checkMac: true) }
+
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await refresh(checkMac: !mac.isConnected) } }
         }
@@ -100,8 +108,12 @@ struct ContentView: View {
         Section {
             if session.isStarting {
                 Label { Text("Starting the mic…") } icon: { ProgressView() }
+            } else if session.phase == .recording {
+                Label("Listening. Tap ◀ in the top-left corner to go back to your app; tap the mic there when you're done.",
+                      systemImage: "waveform")
+                    .foregroundStyle(.red)
             } else if session.isActive {
-                Label("Mic is ready. Tap ◀ in the top-left corner to go back, then hold the mic again.",
+                Label("Mic is ready. Tap ◀ in the top-left corner to go back, then use the mic.",
                       systemImage: "arrow.uturn.backward.circle.fill")
                     .foregroundStyle(.green)
             }
@@ -117,7 +129,7 @@ struct ContentView: View {
                 Text("Looking for your Mac…")
             case .connected(let model):
                 HStack {
-                    Text("Connected to \(mac.hostDescription) · \(model)")
+                    Text("Connected to \(mac.hostDescription) · \(model)\(mac.engineReady ? "" : " (loading model…)")")
                     Spacer()
                     Button("Change") { showCodeEntry = true; mac.forget() }
                         .buttonStyle(.borderless)
@@ -130,7 +142,7 @@ struct ContentView: View {
                     .foregroundStyle(.orange)
                 codeEntry
             case .unreachable:
-                Text("Can't find your Mac. Check that **bun start** is running and both devices are on the same Wi-Fi.")
+                Text("Can't reach your Mac. Check that **bun start** is running and both devices are on the same Wi-Fi. This reconnects by itself the moment the server is back.")
                     .foregroundStyle(.orange)
                 Button("Try again") { Task { await mac.check() } }
                     .buttonStyle(.borderedProminent)
@@ -231,16 +243,19 @@ struct ContentView: View {
                 Label { Text("Starting the mic…") } icon: { ProgressView() }
             } else if session.isActive {
                 HStack {
-                    if session.micMode == .onHold {
-                        Label("Ready · mic turns on only while you hold", systemImage: "mic").foregroundStyle(.green)
-                    } else {
-                        Label("Ready · mic stays on", systemImage: "mic.fill").foregroundStyle(.green)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("Mic ready", systemImage: "mic.fill").foregroundStyle(.green)
+                        if let endsAt = session.endsAt {
+                            Text("Turns off \(endsAt, style: .relative) from now unless you dictate")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     Button("Turn off") { session.endSession() }.buttonStyle(.borderless)
                 }
             } else {
-                Text("Dictation starts by itself when you first hold the mic button, and turns off after 5 idle minutes.")
+                Text("The mic turns on when you first hold the mic button, and stays ready \(session.sessionMinutes == 0 ? "until you turn it off" : "for \(Self.sessionLengthLabel(session.sessionMinutes))").")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -262,6 +277,17 @@ struct ContentView: View {
         let selector = NSSelectorFromString("identifier")
         return UITextInputMode.activeInputModes.contains { mode in
             mode.responds(to: selector) && (mode.perform(selector)?.takeUnretainedValue() as? String) == extensionID
+        }
+    }
+}
+
+extension ContentView {
+    static func sessionLengthLabel(_ minutes: Int) -> String {
+        switch minutes {
+        case 0: "Until I turn it off"
+        case 60: "1 hour"
+        case 1: "1 minute"
+        default: "\(minutes) minutes"
         }
     }
 }

@@ -1,154 +1,98 @@
 import AVFoundation
 
-/// Records 16 kHz mono clips for the keyboard.
+/// Keeps the microphone running for the whole session and keeps only the samples between
+/// `beginCapture()` and `finishCapture()`.
 ///
-/// iOS won't let a backgrounded app *activate* recording, so a session is started while the
-/// app is in front. Two ways to keep it usable once you go back to the other app:
-/// - `.onHold`: play silence to stay alive, and switch the mic on only between
-///   `beginCapture()` and `finishCapture()`. The orange mic dot shows only while you hold.
-/// - `.alwaysOn`: keep the mic running and drop samples outside a hold.
+/// iOS won't let a backgrounded app *start* the mic (it records silence), so the session is
+/// started while the app is in front and the engine stays running until the session ends.
+/// The running engine is also what keeps the app alive in the background (UIBackgroundModes:
+/// audio). Wispr Flow, Raycast and Dictus work the same way.
 final class AudioRecorder {
-    enum MicMode: String { case onHold, alwaysOn }
-
     static let sampleRate: Double = 16_000
 
     var onLevel: ((Float) -> Void)?
-    private(set) var mode: MicMode = .onHold
 
-    private let inputEngine = AVAudioEngine()
-    private let keepAliveEngine = AVAudioEngine()
-    private let silencePlayer = AVAudioPlayerNode()
+    private let engine = AVAudioEngine()
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: sampleRate, channels: 1, interleaved: true)!
     private var converter: AVAudioConverter?
     private let lock = NSLock()
     private var samples: [Int16] = []
     private var capturing = false
-    private var inputRunning = false
-    private var observers: [NSObjectProtocol] = []
+    private var configObserver: NSObjectProtocol?
 
-    init() {
-        keepAliveEngine.attach(silencePlayer)
-    }
+    var isRunning: Bool { engine.isRunning }
 
-    func start(mode: MicMode) throws {
-        self.mode = mode
+    func start() throws {
         let session = AVAudioSession.sharedInstance()
         // playAndRecord + mixWithOthers keeps the user's music playing.
         try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers, .defaultToSpeaker])
         // iOS mutes haptics while recording by default, which swallows the keyboard's
-        // "listening" tap that fires the moment the mic turns on.
+        // "listening" tap that fires the moment recording starts.
         try? session.setAllowHapticsAndSystemSoundsDuringRecording(true)
         try session.setActive(true)
+        try startEngine()
+        log("mic on")
 
-        switch mode {
-        case .onHold: try startKeepAlive()
-        case .alwaysOn: try startInput()
+        // Route changes (AirPods etc.) stop the engine; restart it with the new input format.
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.log("engine config changed, restarting")
+            self.engine.inputNode.removeTap(onBus: 0)
+            do { try self.startEngine() } catch { self.log("restart failed: \(error)") }
         }
-        log("session started, mode=\(mode.rawValue)")
+    }
 
-        // Route changes (AirPods etc.) stop engines; restart whichever should be running.
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: inputEngine, queue: .main
-        ) { [weak self] _ in
-            guard let self, self.inputRunning else { return }
-            self.log("input engine config changed, restarting")
-            self.stopInput()
-            try? self.startInput()
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: keepAliveEngine, queue: .main
-        ) { [weak self] _ in
-            guard let self, self.mode == .onHold else { return }
-            self.log("keep-alive engine config changed, restarting")
-            try? self.startKeepAlive()
-        })
+    /// Restarts the engine after an interruption (a call, Siri) if iOS lets us.
+    func resume() throws {
+        try AVAudioSession.sharedInstance().setActive(true)
+        engine.inputNode.removeTap(onBus: 0)
+        try startEngine()
+        log("mic resumed")
     }
 
     func stop() {
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers = []
-        stopInput()
-        stopKeepAlive()
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        configObserver = nil
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
         lock.withLock { capturing = false; samples = [] }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        log("session stopped")
+        log("mic off")
     }
 
-    /// Starts keeping samples. In `.onHold` mode this switches the mic on, which iOS may refuse
-    /// while the app is in the background; the error is thrown so the caller can fall back.
-    func beginCapture() throws {
+    func beginCapture() {
         lock.withLock {
             samples.removeAll(keepingCapacity: true)
             converter?.reset()
+            capturing = true
         }
-        if !inputRunning {
-            let started = Date()
-            try startInput()
-            log("mic on in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
-        }
-        lock.withLock { capturing = true }
     }
 
     /// Stops capturing and returns the clip as 16 kHz mono 16-bit PCM WAV.
-    func finishCapture() -> (wav: Data, seconds: Double) {
+    func finishCapture() -> (wav: Data, seconds: Double, peak: Int16) {
         let clip = lock.withLock { () -> [Int16] in
             capturing = false
             return samples
         }
-        if mode == .onHold { stopInput() }
-        return (WAV.encode(samples: clip, sampleRate: Int(Self.sampleRate)), Double(clip.count) / Self.sampleRate)
+        let peak = clip.lazy.map { $0 == .min ? .max : abs($0) }.max() ?? 0
+        return (WAV.encode(samples: clip, sampleRate: Int(Self.sampleRate)), Double(clip.count) / Self.sampleRate, peak)
     }
 
     func cancelCapture() {
         lock.withLock { capturing = false; samples = [] }
-        if mode == .onHold { stopInput() }
     }
 
-    // MARK: Engines
-
-    private func startKeepAlive() throws {
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
-        keepAliveEngine.connect(silencePlayer, to: keepAliveEngine.mainMixerNode, format: format)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 44_100) else { return }
-        buffer.frameLength = buffer.frameCapacity // zero-filled: one second of silence
-        if !keepAliveEngine.isRunning {
-            keepAliveEngine.prepare()
-            try keepAliveEngine.start()
-        }
-        silencePlayer.stop()
-        silencePlayer.scheduleBuffer(buffer, at: nil, options: .loops)
-        silencePlayer.play()
-    }
-
-    private func stopKeepAlive() {
-        silencePlayer.stop()
-        keepAliveEngine.stop()
-    }
-
-    private func startInput() throws {
-        let input = inputEngine.inputNode
+    private func startEngine() throws {
+        let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         converter = AVAudioConverter(from: inputFormat, to: targetFormat)
-        input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
             self?.handle(buffer)
         }
-        inputEngine.prepare()
-        do {
-            try inputEngine.start()
-        } catch {
-            input.removeTap(onBus: 0)
-            log("mic failed to start: \(error)")
-            throw error
-        }
-        inputRunning = true
-    }
-
-    private func stopInput() {
-        guard inputRunning else { return }
-        inputEngine.inputNode.removeTap(onBus: 0)
-        inputEngine.stop()
-        inputRunning = false
+        engine.prepare()
+        try engine.start()
     }
 
     private func handle(_ buffer: AVAudioPCMBuffer) {
@@ -185,7 +129,7 @@ final class AudioRecorder {
     }
 
     private func log(_ message: String) {
-        print("[mic] \(message)")
+        DebugLog.log("[mic] \(message)")
     }
 }
 

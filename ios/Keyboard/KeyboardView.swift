@@ -4,13 +4,37 @@ struct KeyboardView: View {
     @ObservedObject var model: KeyboardModel
     let showsGlobe: Bool
     let onGlobe: () -> Void
+    let onSpace: () -> Void
     let onReturn: () -> Void
     let onDelete: () -> Void
 
     @State private var pressing = false
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
+            HStack {
+                Toggle(isOn: $model.holdToTalk) {
+                    Text("Hold to talk").font(.caption.weight(.medium))
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .fixedSize()
+                .disabled(model.phase == .recording || model.phase == .starting)
+                Spacer()
+                if model.sessionAlive, model.phase != .recording, model.phase != .starting {
+                    Button(action: model.turnOffMic) {
+                        Label("Mic off", systemImage: "mic.slash.fill")
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color(.systemBackground).opacity(0.7), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Turns the microphone off until you dictate again")
+                }
+            }
+            .padding(.horizontal, 12)
+
             Text(statusText)
                 .font(.footnote)
                 .foregroundStyle(isError ? .red : .secondary)
@@ -25,7 +49,17 @@ struct KeyboardView: View {
                 if showsGlobe {
                     key(systemImage: "globe", action: onGlobe)
                 }
-                Spacer()
+                key(systemImage: "gearshape", action: model.openSettingsApp)
+                    .accessibilityLabel("Open hex-ios-keyboard")
+                Button(action: onSpace) {
+                    Text("space")
+                        .font(.system(size: 16))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(Color(.systemBackground).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Space")
                 key(systemImage: "return", action: onReturn)
                 key(systemImage: "delete.left", action: onDelete)
             }
@@ -63,14 +97,14 @@ struct KeyboardView: View {
                 .onChanged { _ in
                     guard !pressing else { return }
                     pressing = true
-                    model.pressBegan()
+                    model.touchDown()
                 }
                 .onEnded { _ in
                     pressing = false
-                    model.pressEnded()
+                    model.touchUp()
                 }
         )
-        .accessibilityLabel("Hold to dictate")
+        .accessibilityLabel(model.holdToTalk ? "Hold to dictate" : "Tap to dictate")
     }
 
     private func key(systemImage: String, action: @escaping () -> Void) -> some View {
@@ -90,10 +124,10 @@ struct KeyboardView: View {
 
     private var statusText: String {
         switch model.phase {
-        case .idle: model.sessionAlive ? "Hold to talk" : "Hold to talk (starts the mic first)"
+        case .idle: model.holdToTalk ? "Hold to talk" : "Tap to talk"
         case .opening: "Opening hex-ios-keyboard to start the mic…"
         case .starting: "Starting mic…"
-        case .recording: "Listening… release to send"
+        case .recording: model.stopsOnTap ? "Listening… tap to send" : "Listening… release to send"
         case .transcribing: "Transcribing on your Mac…"
         case .message(let text): text
         }
