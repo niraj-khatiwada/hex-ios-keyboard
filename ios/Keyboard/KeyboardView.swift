@@ -11,33 +11,21 @@ struct KeyboardView: View {
     @State private var pressing = false
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Spacer()
-                if model.sessionAlive, model.phase != .recording, model.phase != .starting {
-                    Button(action: model.turnOffMic) {
-                        Label("Mic off", systemImage: "mic.slash.fill")
-                            .font(.caption.weight(.medium))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Color(.systemBackground).opacity(0.7), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Turns the microphone off until you dictate again")
-                }
-            }
-            .frame(height: 26)
-            .padding(.horizontal, 12)
+        VStack(spacing: 0) {
+            // Mic near the top, with what's happening right underneath it.
+            micButton
+                .padding(.top, 10)
 
             Text(statusText)
                 .font(.footnote)
                 .foregroundStyle(isError ? .red : .secondary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
-                .frame(height: 34)
-                .padding(.horizontal)
+                .minimumScaleFactor(0.85)
+                .padding(.horizontal, 24)
+                .padding(.top, 2)
 
-            micButton
+            Spacer(minLength: 8)
 
             HStack {
                 if showsGlobe {
@@ -62,6 +50,22 @@ struct KeyboardView: View {
         .padding(.top, 8)
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Mic off floats in the corner so it doesn't push the mic down.
+        .overlay(alignment: .topTrailing) {
+            if model.sessionAlive, model.phase != .recording, model.phase != .starting {
+                Button(action: model.turnOffMic) {
+                    Label("Mic off", systemImage: "mic.slash.fill")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color(.systemBackground).opacity(0.7), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Turns the microphone off until you dictate again")
+                .padding(.top, 10)
+                .padding(.trailing, 12)
+            }
+        }
     }
 
     private var micButton: some View {
@@ -69,8 +73,8 @@ struct KeyboardView: View {
         return ZStack {
             Circle()
                 .fill(recording ? Color.red.opacity(0.18) : Color.clear)
-                .frame(width: 150, height: 150)
-                .scaleEffect(recording ? 0.8 + CGFloat(model.level) * 0.35 : 0.8)
+                .frame(width: 136, height: 136)
+                .scaleEffect(recording ? 0.85 + CGFloat(model.level) * 0.3 : 0.85)
                 .animation(.easeOut(duration: 0.1), value: model.level)
             Circle()
                 .fill(recording ? Color.red : Color.accentColor)
@@ -84,7 +88,7 @@ struct KeyboardView: View {
                     .foregroundStyle(.white)
             }
         }
-        .frame(width: 150, height: 150)
+        .frame(width: 136, height: 136)
         .contentShape(Circle())
         .gesture(
             DragGesture(minimumDistance: 0)
