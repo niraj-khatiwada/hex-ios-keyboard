@@ -19,7 +19,7 @@ struct VoiceKeyboardApp: App {
                     guard url.host == "start" else { return }
                     // voicekb://start comes from the keyboard when no session is running:
                     // start the mic, start recording, and go straight back to the user's app.
-                    openedFromKeyboard = true
+                    openedFromKeyboard = !session.testingInApp
                     let host = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                         .queryItems?.first(where: { $0.name == "host" })?.value
                     DebugLog.log("opened by keyboard, host=\(host ?? "unknown")")
@@ -27,7 +27,7 @@ struct VoiceKeyboardApp: App {
                         await session.startSession()
                         guard session.isActive else { return }
                         session.beginRecordingFromKeyboard()
-                        ReturnToPreviousApp.now(hostBundleID: host)
+                        if !session.testingInApp { ReturnToPreviousApp.now(hostBundleID: host) }
                     }
                 }
         }

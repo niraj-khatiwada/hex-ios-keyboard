@@ -17,7 +17,7 @@ struct MacServerClient {
     var baseURL: URL
     var token: String
 
-    struct Health: Decodable { let ok: Bool; let authed: Bool; let model: String; let ready: Bool }
+    struct Health: Decodable { let ok: Bool; let authed: Bool; let model: String; let modelName: String?; let ready: Bool }
     private struct Result: Decodable { let text: String?; let error: String? }
 
     struct ServerError: LocalizedError {

@@ -9,7 +9,6 @@ import QRCode from "qrcode"
 const APP_NAME = "hex-ios-keyboard"
 const PORT = Number(process.env.PORT ?? 8787)
 const HEX_BIN = process.env.HEX_BIN ?? "/Applications/Hex.app/Contents/MacOS/hex"
-const MODEL = (process.env.HEX_MODEL ?? "parakeet_unified_en") as Hex.ModelId
 const LANGUAGE = process.env.HEX_LANGUAGE ?? "en"
 const MAX_BYTES = 32 * 1024 * 1024
 
@@ -36,6 +35,26 @@ function loadToken(): string {
 }
 const TOKEN = loadToken()
 
+// MARK: Model choice
+
+const SETTINGS_FILE = join(DATA_DIR, "settings.json")
+const DEFAULT_MODEL: Hex.ModelId = "parakeet_unified_en"
+
+function loadSettings(): { model?: Hex.ModelId } {
+  try {
+    return JSON.parse(readFileSync(SETTINGS_FILE, "utf8"))
+  } catch {
+    return {}
+  }
+}
+
+// HEX_MODEL wins when set; otherwise the model picked on the dashboard; otherwise Parakeet.
+let activeModel: Hex.ModelId = (process.env.HEX_MODEL as Hex.ModelId) ?? loadSettings().model ?? DEFAULT_MODEL
+
+function saveModel(model: Hex.ModelId) {
+  writeFileSync(SETTINGS_FILE, JSON.stringify({ ...loadSettings(), model }, null, 2) + "\n")
+}
+
 // MARK: Status shown on the dashboard
 
 type HexState =
@@ -47,14 +66,25 @@ type HexState =
 
 let hexState: HexState = { state: "starting" }
 let phone: { lastSeen: number; ip: string } | undefined
+// When the phone last opened its live connection; the dashboard's Reconnect popup watches this.
+let phoneConnectedAt = 0
 
 // Live connections from the iPhone app. Status is pushed the moment it changes, and a closed
 // socket tells the phone the server is gone right away.
 type Socket = import("bun").ServerWebSocket<{ ip: string }>
 const sockets = new Set<Socket>()
 
+// Friendly names ("Parakeet Unified English"), filled in whenever the model list is read.
+const modelNames = new Map<string, string>()
+
 function statusMessage() {
-  return JSON.stringify({ type: "status", model: MODEL, hex: hexState.state, ready: hexState.state === "ready" })
+  return JSON.stringify({
+    type: "status",
+    model: activeModel,
+    modelName: modelNames.get(activeModel) ?? activeModel,
+    hex: hexState.state,
+    ready: hexState.state === "ready",
+  })
 }
 
 function setHexState(next: HexState) {
@@ -63,51 +93,35 @@ function setHexState(next: HexState) {
   for (const ws of sockets) ws.send(message)
 }
 
-// MARK: Hex transcriber
+// MARK: Hex host
 
-// Keep one transcriber alive so the model stays loaded between clips.
-let transcriber: Hex.Transcriber | undefined
-let starting: Promise<Hex.Transcriber> | undefined
+// One Hex helper process for the server's lifetime. It can list, download and load models, so
+// switching models doesn't need a new process; the loaded model stays warm between clips.
+let host: Hex.HexHost | undefined
+let hostStarting: Promise<Hex.HexHost> | undefined
+let preparedModel: Hex.ModelId | undefined
 
-function getTranscriber(): Promise<Hex.Transcriber> {
-  if (transcriber) return Promise.resolve(transcriber)
-  setHexState({ state: "starting" })
-  starting ??= Hex.create({
-    command: [HEX_BIN, "service", "--embedded"],
-    model: MODEL,
-    language: LANGUAGE,
-    onProgress: (p) => {
-      if (p.type === "downloading") {
-        const percent = p.totalBytes ? Math.round((p.downloadedBytes / p.totalBytes) * 100) : 0
-        setHexState({ state: "downloading", percent })
-      } else if (p.type === "loading" || p.type === "verifying") {
-        setHexState({ state: "loading" })
-      }
-    },
-  })
-    .then((t) => {
-      transcriber = t
-      setHexState({ state: "ready", pid: t.pid })
-      console.log(`[hex] ready: model=${t.model} pid=${t.pid}`)
-      return t
-    })
-    .catch((err) => {
-      setHexState({ state: "error", message: String(err?.message ?? err) })
-      throw err
+function getHost(): Promise<Hex.HexHost> {
+  if (host) return Promise.resolve(host)
+  hostStarting ??= Hex.create({ command: [HEX_BIN, "service", "--embedded"] })
+    .then((h) => {
+      host = h
+      return h
     })
     .finally(() => {
-      starting = undefined
+      hostStarting = undefined
     })
-  return starting
+  return hostStarting
 }
 
-async function resetTranscriber() {
-  const t = transcriber
-  transcriber = undefined
-  await t?.close().catch(() => {})
+async function resetHost() {
+  const h = host
+  host = undefined
+  preparedModel = undefined
+  await h?.close().catch(() => {})
 }
 
-// The native service rejects concurrent requests, so run clips one at a time.
+// The native service rejects concurrent requests, so model loads and clips run one at a time.
 let queue: Promise<unknown> = Promise.resolve()
 function enqueue<T>(job: () => Promise<T>): Promise<T> {
   const run = queue.then(job, job)
@@ -115,17 +129,76 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
   return run
 }
 
+/** Downloads (if needed) and loads `model`, then makes it the one clips use. */
+async function prepareModel(model: Hex.ModelId) {
+  setHexState({ state: "starting" })
+  try {
+    const h = await getHost()
+    setHexState({ state: "loading" })
+    await h.client.models.prepare(model, {
+      language: LANGUAGE,
+      // Only installed models get here, so Hex's brief "downloading" check is just loading.
+      onProgress: () => setHexState({ state: "loading" }),
+    })
+    preparedModel = model
+    if (!modelNames.has(model)) await installedModels().catch(() => {})
+    setHexState({ state: "ready", pid: h.pid })
+    console.log(`[hex] ready: model=${model} pid=${h.pid}`)
+  } catch (err) {
+    setHexState({ state: "error", message: String((err as Error)?.message ?? err) })
+    throw err
+  }
+}
+
+function switchModel(model: Hex.ModelId) {
+  activeModel = model
+  saveModel(model)
+  return enqueue(() => prepareModel(model))
+}
+
 async function transcribe(wav: Uint8Array) {
   return enqueue(async () => {
+    if (preparedModel !== activeModel) await prepareModel(activeModel)
+    const h = await getHost()
     try {
-      return await (await getTranscriber()).transcribe(wav)
+      return await h.client.transcribe({ audio: { data: wav, contentType: "audio/wav" }, model: activeModel, language: LANGUAGE })
     } catch (err) {
-      // A dead helper won't recover; start a fresh one next time.
-      await resetTranscriber()
-      getTranscriber().catch(() => {})
+      // A dead helper won't recover; start a fresh one. An ordinary request error leaves it be.
+      const alive = await h.client.health().then(() => true, () => false)
+      if (!alive) {
+        await resetHost()
+        enqueue(() => prepareModel(activeModel)).catch(() => {})
+      }
       throw err
     }
   })
+}
+
+/** Models already installed through the Hex app. We never download from here. */
+async function installedModels() {
+  type CliModel = { id: string; name: string; languages: string[]; installed: boolean }
+  let catalog: CliModel[]
+  // The Hex CLI knows every model the app can install. The SDK's own list() rejects catalog
+  // entries newer than its release, so it's only the fallback.
+  const cli = Bun.spawnSync([HEX_BIN, "model", "list", "--json"])
+  try {
+    catalog = JSON.parse(cli.stdout.toString()).models
+  } catch {
+    const h = await getHost()
+    catalog = (await h.client.models.list({ language: LANGUAGE })).map((m) => ({ ...m, languages: [...m.languages] }))
+  }
+  const supported = new Set<string>(Hex.MODEL_IDS)
+  for (const m of catalog) modelNames.set(m.id, m.name)
+  return catalog
+    .filter((m) => m.installed)
+    .map((m) => ({
+      id: m.id as Hex.ModelId,
+      name: m.name,
+      languages: m.languages,
+      // Installed in Hex, but too new for this SDK version to load.
+      supported: supported.has(m.id),
+      active: m.id === activeModel,
+    }))
 }
 
 // MARK: History
@@ -220,7 +293,7 @@ const server = Bun.serve<{ ip: string }>({
 
     if (url.pathname === "/health") {
       if (authed) phone = { lastSeen: Date.now(), ip }
-      return json({ ok: true, authed, model: MODEL, ready: hexState.state === "ready" })
+      return json({ ok: true, authed, model: activeModel, modelName: modelNames.get(activeModel) ?? activeModel, ready: hexState.state === "ready" })
     }
 
     if (url.pathname === "/transcribe" && req.method === "POST") {
@@ -264,12 +337,34 @@ const server = Bun.serve<{ ip: string }>({
         serverURL,
         token: TOKEN,
         qrSvg,
-        model: MODEL,
+        model: activeModel,
         hex: hexState,
         phone,
         phoneLive: sockets.size > 0,
+        phoneConnectedAt,
         historyCount: readHistory().length,
       })
+    }
+
+    if (url.pathname === "/api/models" && req.method === "GET") {
+      try {
+        return json(await installedModels())
+      } catch (err) {
+        return json({ error: String((err as Error)?.message ?? err) }, 500)
+      }
+    }
+
+    if (url.pathname === "/api/model" && req.method === "POST") {
+      const { id } = (await req.json().catch(() => ({}))) as { id?: string }
+      const models = await installedModels().catch(() => [])
+      const model = models.find((m) => m.id === id)
+      if (!model) return json({ error: "That model isn't installed. Install it from the Hex app first." }, 400)
+      if (!model.supported) return json({ error: `${model.name} is too new for this version of the Hex SDK. Update @kitlangton/hex to use it.` }, 400)
+      if (model.id !== activeModel || hexState.state === "error") {
+        console.log(`[hex] switching to ${model.id}`)
+        switchModel(model.id).catch((err) => console.error("[hex] switch failed:", err))
+      }
+      return json({ ok: true, model: model.id })
     }
 
     if (url.pathname === "/api/history" && req.method === "GET") {
@@ -309,6 +404,7 @@ const server = Bun.serve<{ ip: string }>({
     open(ws) {
       sockets.add(ws)
       phone = { lastSeen: Date.now(), ip: ws.data.ip }
+      phoneConnectedAt = Date.now()
       ws.send(statusMessage())
       console.log(`[phone] connected from ${ws.data.ip.replace("::ffff:", "")}`)
     },
@@ -335,13 +431,13 @@ console.log(`Dashboard (setup, status, history): ${dashboardURL}\n`)
 if (!process.env.NO_OPEN) Bun.spawn(["open", dashboardURL])
 
 // Load the model up front so the first dictation is fast.
-getTranscriber().catch((err) => console.error("[hex] failed to start:", err))
+enqueue(() => prepareModel(activeModel)).catch((err) => console.error("[hex] failed to start:", err))
 
 async function shutdown() {
   // Close phone connections first so the app shows "server stopped" immediately.
   server.stop(true)
   bonjour.unpublishAll(() => bonjour.destroy())
-  await resetTranscriber()
+  await resetHost()
   process.exit(0)
 }
 process.on("SIGINT", shutdown)

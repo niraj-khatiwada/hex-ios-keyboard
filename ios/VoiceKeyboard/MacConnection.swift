@@ -16,6 +16,8 @@ final class MacConnection: ObservableObject {
     @Published private(set) var status: Status = .notPaired
     /// False while the Mac is still loading the Hex model.
     @Published private(set) var engineReady = true
+    /// The model the Mac transcribes with, e.g. "Parakeet Unified English".
+    @Published private(set) var modelName: String?
     /// Dictation history from the Mac, newest first. Text only.
     @Published private(set) var history: [HistoryItem] = []
     @Published private(set) var historyLoading = false
@@ -47,13 +49,22 @@ final class MacConnection: ObservableObject {
         else { return false }
         serverURL = url
         self.token = token
-        Task { await check() }
+        DebugLog.log("paired from QR code: \(url)")
+        Task { await reconnectNow() }
         return true
     }
 
     /// Pair by typing the code the Mac prints; the address is found on the network.
     func pair(code: String) async {
         token = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        await reconnectNow()
+    }
+
+    /// Drops any current connection and connects again, e.g. after scanning a new QR code.
+    func reconnectNow() async {
+        closeSocket()
+        reconnectTask?.cancel()
+        failures = 0
         await check()
     }
 
@@ -100,6 +111,7 @@ final class MacConnection: ObservableObject {
             return
         }
         status = .connected(model: health.model)
+        modelName = health.modelName ?? health.model
         engineReady = health.ready
         openSocket()
     }
@@ -152,6 +164,7 @@ final class MacConnection: ObservableObject {
     private struct ServerMessage: Decodable {
         let type: String
         let model: String?
+        let modelName: String?
         let ready: Bool?
         let entry: HistoryItem?
     }
@@ -164,6 +177,7 @@ final class MacConnection: ObservableObject {
         case "status":
             failures = 0
             if let model = message.model { status = .connected(model: model) }
+            modelName = message.modelName ?? message.model
             engineReady = message.ready ?? true
         case "history":
             if let entry = message.entry, !history.contains(where: { $0.id == entry.id }) {

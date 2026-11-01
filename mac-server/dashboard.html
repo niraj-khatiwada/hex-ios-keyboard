@@ -53,6 +53,23 @@
   .qr .code { background: #fff; padding: 10px; border-radius: 12px; border: 1px solid var(--line); }
   .qr svg { width: 190px; height: 190px; display: block; }
   .qr ol { max-width: 340px; }
+  .model { padding: 16px 18px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .model select { flex: 1; min-width: 220px; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  .model .hint { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--muted); }
+  .allset { padding: 18px; display: flex; gap: 14px; align-items: center; }
+  .allset .check { flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--green); color: #fff; display: grid; place-items: center; font-size: 18px; font-weight: 700; }
+  .allset .title { font-weight: 600; }
+  .allset p { margin: 2px 0 0; color: var(--muted); }
+  .header-actions { display: flex; gap: 10px; align-items: center; }
+  .modal { position: fixed; inset: 0; background: #0008; display: grid; place-items: center; padding: 20px; z-index: 10; }
+  .modal[hidden] { display: none; }
+  .modal .sheet { background: var(--card); border-radius: 18px; padding: 28px 32px; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 10px 40px #0004; }
+  .modal h3 { margin: 0 0 6px; font-size: 20px; }
+  .modal p { margin: 6px 0; color: var(--muted); }
+  .modal .code { background: #fff; padding: 10px; border-radius: 12px; display: inline-block; margin: 14px 0 8px; }
+  .modal .code svg { width: 220px; height: 220px; display: block; }
+  .modal .live { margin: 12px 0 16px; font-weight: 600; display: flex; gap: 8px; justify-content: center; align-items: center; }
+  .modal .live.ok { color: var(--green); }
   code, kbd { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg); padding: 2px 6px; border-radius: 6px; color: var(--text); }
   .spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: spin 0.8s linear infinite; vertical-align: -2px; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -81,7 +98,10 @@
       <p class="sub">Dictate on your iPhone, transcribe on this Mac with Hex.</p>
       </div>
     </div>
-    <span id="overall" class="pill info"><span class="spinner"></span> Loading…</span>
+    <div class="header-actions">
+      <span id="overall" class="pill info"><span class="spinner"></span> Loading…</span>
+      <button id="reconnect">Reconnect iPhone</button>
+    </div>
   </header>
 
   <div class="card status">
@@ -90,7 +110,22 @@
     <div><div class="label">iPhone</div><div class="value" id="s-phone">—</div><div class="detail" id="s-phone-d"></div></div>
   </div>
 
-  <h2>Setup</h2>
+  <div class="card allset" id="allset" hidden style="margin-top: 16px">
+    <div class="check">✓</div>
+    <div>
+      <div class="title">You're all set</div>
+      <p>Dictating with <b id="allset-model"></b>. In any app, switch to hex-ios-keyboard with 🌐 and hold the mic.</p>
+    </div>
+  </div>
+
+  <h2>Model</h2>
+  <div class="card model">
+    <select id="model-select" disabled><option>Loading models…</option></select>
+    <button id="model-use" disabled>Use this model</button>
+    <p class="hint" id="model-hint">Only models installed in the Hex app are listed. To add one, install it in Hex, then reload this page.</p>
+  </div>
+
+  <h2 id="setup-title">Setup</h2>
   <div class="card" id="steps">
     <div class="step" id="step-server">
       <div class="badge">1</div>
@@ -162,6 +197,17 @@
   <div class="card" id="history"><div class="empty">Nothing yet. Your dictations will appear here.</div></div>
 </main>
 
+<div class="modal" id="reconnect-modal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="reconnect-title">
+    <h3 id="reconnect-title">Reconnect your iPhone</h3>
+    <p>Open the <b>Camera</b> on your iPhone, point it at this code, and tap the link that appears.</p>
+    <div class="code" id="reconnect-qr"></div>
+    <p>Can't scan? In the app, tap <i>Change</i> → <i>Type the code instead</i> and enter <code id="reconnect-token"></code></p>
+    <div class="live" id="reconnect-live"><span class="spinner"></span> Waiting for your iPhone…</div>
+    <button id="reconnect-close">Close</button>
+  </div>
+</div>
+
 <script>
 const $ = (id) => document.getElementById(id)
 let status = null
@@ -186,6 +232,33 @@ function setStep(id, done) {
   $(id).querySelector(".badge").textContent = done ? "✓" : $(id).dataset.n
 }
 
+let models = []
+const modelName = (id) => models.find((m) => m.id === id)?.name ?? id
+
+async function loadModels() {
+  try {
+    const res = await fetch("/api/models")
+    if (!res.ok) throw new Error((await res.json()).error)
+    models = await res.json()
+    const select = $("model-select")
+    const langs = (m) => m.languages?.length ? " · " + (m.languages[0] === "*" ? "any language" : m.languages.length > 3 ? m.languages.length + " languages" : m.languages.join(", ")) : ""
+    select.innerHTML = models.map((m) => `<option value="${esc(m.id)}" ${m.supported ? "" : "disabled"}>${esc(m.name)}${esc(langs(m))}${m.supported ? "" : " · needs a newer SDK"}</option>`).join("")
+    select.value = status?.model ?? ""
+    select.disabled = models.length === 0
+    $("model-hint").textContent = models.length
+      ? "Only models installed in the Hex app are listed. To add one, install it in Hex, then reload this page."
+      : "No models are installed. Install one in the Hex app, then reload this page."
+    updateModelButton()
+  } catch (err) {
+    $("model-hint").textContent = "Couldn't list models: " + err.message
+  }
+}
+
+function updateModelButton() {
+  const busy = status && status.hex.state !== "ready" && status.hex.state !== "error"
+  $("model-use").disabled = !status || busy || $("model-select").value === status.model
+}
+
 function renderStatus() {
   const s = status
   $("s-server").textContent = "Running"
@@ -195,15 +268,15 @@ function renderStatus() {
   const hexReady = hex.state === "ready"
   const hexText = {
     starting: ["Starting…", ""],
-    downloading: [`Downloading ${hex.percent ?? 0}%`, s.model],
-    loading: ["Loading model…", s.model],
-    ready: ["Ready", `${s.model} · pid ${hex.pid}`],
+    downloading: [`Downloading ${hex.percent ?? 0}%`, modelName(s.model)],
+    loading: ["Loading model…", modelName(s.model)],
+    ready: ["Ready", modelName(s.model)],
     error: ["Not working", hex.message],
   }[hex.state]
   $("s-hex").innerHTML = (hexReady || hex.state === "error" ? "" : '<span class="spinner"></span> ') + esc(hexText[0])
   $("s-hex").style.color = hex.state === "error" ? "var(--red)" : ""
   $("s-hex-d").textContent = hexText[1]
-  $("hex-state").innerHTML = hexReady ? `Ready · ${esc(s.model)}` : esc(hexText[0] + (hexText[1] ? " · " + hexText[1] : ""))
+  $("hex-state").innerHTML = hexReady ? `Ready · ${esc(modelName(s.model))}` : esc(hexText[0] + (hexText[1] ? " · " + hexText[1] : ""))
 
   const seen = s.phone?.lastSeen
   const online = s.phoneLive
@@ -226,9 +299,15 @@ function renderStatus() {
   $("qr-block").style.display = everSeen ? "none" : ""
 
   const done = hexReady && everSeen && s.historyCount > 0
+  // Setup only matters while something's missing.
+  $("setup-title").hidden = done
+  $("steps").hidden = done
+  $("allset").hidden = !done
+  $("allset-model").textContent = modelName(s.model)
+  updateModelButton()
   const overall = $("overall")
   if (hex.state === "error") { overall.className = "pill wait"; overall.innerHTML = '<span class="dot"></span> Hex isn\'t working' }
-  else if (done) { overall.className = "pill ok"; overall.innerHTML = '<span class="dot"></span> All set' }
+  else if (done) { overall.className = "pill ok"; overall.innerHTML = `<span class="dot"></span> All set · ${esc(modelName(s.model))}` }
   else { overall.className = "pill info"; overall.innerHTML = '<span class="dot"></span> Setup in progress' }
 }
 
@@ -277,6 +356,50 @@ $("history").addEventListener("click", async (e) => {
 })
 
 $("search").addEventListener("input", renderHistory)
+
+// Reconnect: show the pairing QR any time. The current connection keeps working; the popup
+// just watches for the phone to connect again after it opened.
+let reconnectOpenedAt = 0
+let reconnectCloseTimer = null
+function openReconnect() {
+  if (!status) return
+  reconnectOpenedAt = Date.now()
+  clearTimeout(reconnectCloseTimer)
+  $("reconnect-qr").innerHTML = status.qrSvg
+  $("reconnect-token").textContent = status.token
+  $("reconnect-live").className = "live"
+  $("reconnect-live").innerHTML = '<span class="spinner"></span> Waiting for your iPhone…'
+  $("reconnect-modal").hidden = false
+}
+function closeReconnect() {
+  $("reconnect-modal").hidden = true
+  reconnectOpenedAt = 0
+}
+function updateReconnect() {
+  if ($("reconnect-modal").hidden || !reconnectOpenedAt) return
+  if (status.phoneConnectedAt > reconnectOpenedAt && status.phoneLive) {
+    $("reconnect-live").className = "live ok"
+    $("reconnect-live").textContent = "✓ Connected"
+    reconnectOpenedAt = 0
+    reconnectCloseTimer = setTimeout(closeReconnect, 1500)
+  }
+}
+$("reconnect").addEventListener("click", openReconnect)
+$("reconnect-close").addEventListener("click", closeReconnect)
+$("reconnect-modal").addEventListener("click", (e) => { if (e.target === $("reconnect-modal")) closeReconnect() })
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeReconnect() })
+$("model-select").addEventListener("change", updateModelButton)
+$("model-use").addEventListener("click", async () => {
+  const id = $("model-select").value
+  $("model-use").disabled = true
+  $("model-hint").textContent = `Switching to ${modelName(id)}…`
+  const res = await fetch("/api/model", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) })
+  const body = await res.json()
+  $("model-hint").textContent = res.ok
+    ? `Loading ${modelName(id)}. Dictations wait until it's ready.`
+    : body.error
+  tick()
+})
 $("open-folder").addEventListener("click", () => fetch("/api/reveal", { method: "POST" }))
 $("clear").addEventListener("click", async () => {
   if (!confirm("Delete all dictation history and audio from this Mac?")) return
@@ -285,10 +408,14 @@ $("clear").addEventListener("click", async () => {
   tick()
 })
 
+let lastHexState = null
 async function tick() {
   try {
     status = await (await fetch("/api/status")).json()
+    if (status.hex.state === "ready" && lastHexState !== "ready") await loadModels()
+    lastHexState = status.hex.state
     renderStatus()
+    updateReconnect()
     if (status.historyCount !== lastCount) {
       lastCount = status.historyCount
       history = await (await fetch("/api/history")).json()
@@ -304,6 +431,7 @@ async function tick() {
 document.querySelectorAll(".step").forEach((el, i) => (el.dataset.n = String(i + 1)))
 tick()
 setInterval(tick, 2000)
+setInterval(() => { if (!$("reconnect-modal").hidden) tick() }, 500)
 </script>
 </body>
 </html>

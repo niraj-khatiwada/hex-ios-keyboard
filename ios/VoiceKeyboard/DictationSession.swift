@@ -13,6 +13,9 @@ final class DictationSession: ObservableObject {
 
     @Published private(set) var isActive = false
     @Published private(set) var isStarting = false
+    /// The user is dictating into the app's own Try it box, so the keyboard is already in the
+    /// right app and there's nothing to return to.
+    var testingInApp = false
     @Published private(set) var phase: SharedState.Phase = .idle
     @Published private(set) var lastText: String?
     @Published private(set) var lastError: String?

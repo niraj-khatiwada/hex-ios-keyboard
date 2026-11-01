@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var showCodeEntry = false
     @State private var code = ""
     @State private var tryText = ""
+    @FocusState private var tryFocused: Bool
 
     private var micReady: Bool { micPermission == .granted }
     private var keyboardReady: Bool { keyboardFullAccess }
@@ -23,22 +24,29 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             List {
-                if openedFromKeyboard {
+                // When you're typing in the Try it box, you're already in the right app,
+                // so there's nowhere to go back to.
+                if openedFromKeyboard && !tryFocused {
                     returnBanner
                 }
 
                 header
 
-                Section {
-                    connectStep
-                    micStep
-                    keyboardStep
-                } header: {
-                    Text(allSet ? "Setup" : "Setup · \(stepsDone) of 3 done")
+                // Setup only shows while something's missing; it comes back if anything breaks.
+                if !allSet {
+                    Section {
+                        connectStep
+                        micStep
+                        keyboardStep
+                    } header: {
+                        Text("Setup · \(stepsDone) of 3 done")
+                    }
                 }
 
                 Section {
                     TextField("Tap here, switch to hex-ios-keyboard with 🌐, then hold the mic", text: $tryText, axis: .vertical)
+                        .focused($tryFocused)
+                        .onChange(of: tryFocused) { _, focused in session.testingInApp = focused }
                         .lineLimit(3...6)
                     dictationStatus
                 } header: {
@@ -93,6 +101,14 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(allSet ? "You're all set" : "Let's get you set up")
                         .font(.headline)
+                    if allSet {
+                        Label {
+                            Text("\(mac.modelName ?? "Hex")\(mac.engineReady ? "" : " · loading…") on \(mac.hostDescription)")
+                        } icon: {
+                            Image(systemName: "cpu")
+                        }
+                        .font(.subheadline.weight(.medium))
+                    }
                     Text(allSet
                          ? "In any app, switch to hex-ios-keyboard with 🌐, hold the mic, talk, and let go."
                          : "Finish the steps below. Each one ticks off by itself.")
@@ -129,7 +145,7 @@ struct ContentView: View {
                 Text("Looking for your Mac…")
             case .connected(let model):
                 HStack {
-                    Text("Connected to \(mac.hostDescription) · \(model)\(mac.engineReady ? "" : " (loading model…)")")
+                    Text("Connected to \(mac.hostDescription) · \(mac.modelName ?? model)\(mac.engineReady ? "" : " (loading model…)")")
                     Spacer()
                     Button("Change") { showCodeEntry = true; mac.forget() }
                         .buttonStyle(.borderless)

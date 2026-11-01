@@ -4,17 +4,6 @@ An iPhone keyboard built around one button: **hold to talk, let go to type.** Yo
 transcribed on your Mac by [Hex](https://github.com/vkpdeveloper/anomaly-hex), and the text is
 typed into whatever app you're using.
 
-- One big mic button: hold to talk, or switch to tap to start / tap to stop
-- 🌐, open-app, space, return and delete keys, plus a **Mic off** button
-- Haptic tap when listening starts and when it stops
-- Live connection to the Mac: the app knows right away when the server stops or comes back
-- Text-only history on the phone, with copy and timestamps
-- Transcription runs locally on your Mac (about 70–100 ms per clip with Parakeet)
-- A Mac dashboard covers setup, live status and a searchable history with audio playback
-- Pair the phone by scanning a QR code; no IP addresses to type
-
-This is a personal tool that you install from Xcode; it's not on the App Store.
-
 ## How it works
 
 ```
@@ -42,8 +31,10 @@ running, so tap the mic when you're done. Wispr Flow and Raycast's keyboard work
 
 ## Requirements
 
-- A Mac with [Hex](https://github.com/vkpdeveloper/anomaly-hex) installed in `/Applications`
-  (the Hex app doesn't need to be open)
+- A Mac with [Hex](https://github.com/vkpdeveloper/anomaly-hex) installed in `/Applications`.
+  The SDK doesn't ship its own speech engine yet, so the server runs the one inside `Hex.app`
+  (`hex service --embedded`). The Hex app itself doesn't need to be open, and it can run at the
+  same time: each keeps its own copy of the model in memory.
 - [Bun](https://bun.sh) 1.1 or later
 - Xcode 16 or later, and a free or paid Apple ID
 - An iPhone on iOS 17 or later, on the **same Wi-Fi** as the Mac
@@ -92,7 +83,9 @@ xcrun devicectl device install app --device <device-id> \
 
 ### 3. Set up on the iPhone
 
-Open **hex-ios-keyboard**. It shows three steps that tick themselves off:
+Open **hex-ios-keyboard**. It shows three steps that tick themselves off. Once they're all done,
+the steps hide and the app shows "You're all set" with the model your Mac is using; they come
+back if anything breaks.
 
 1. **Connect to your Mac.** Open the iPhone **Camera**, point it at the QR code on the
    dashboard, and tap the yellow link that appears. If you can't scan it, tap *Type the code
@@ -120,7 +113,14 @@ see *Listening…*, talk. **Let go** and the text is typed in.
 
 - **Status:** whether the server is running, the Hex engine's state (download progress, loading
   or ready) and when your iPhone was last seen
-- **Setup:** five steps, plus the pairing QR code until your phone connects
+- **Setup:** five steps, plus the pairing QR code until your phone connects. Once everything's
+  green, this collapses into an "All set" card that names the model in use.
+- **Reconnect iPhone** (top right): shows the pairing QR code at any time, even when everything
+  is set up. Scan it to re-pair the phone; the popup closes by itself once the phone connects.
+  The server keeps running, so if you don't scan, nothing changes.
+- **Model:** pick which installed Hex model transcribes your dictations. Only models already
+  installed in the Hex app are listed; nothing is downloaded from here. The choice is saved in
+  `~/.config/hex-ios-keyboard/settings.json`.
 - **History:** every clip with its text, length and transcription time. You can search it, play
   the audio, copy the text, **Show in Finder**, or clear it all.
 
@@ -133,7 +133,7 @@ then pair the phone again.
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `8787` | Port the server listens on |
-| `HEX_MODEL` | `parakeet_unified_en` | Hex model ID (list them with `hex model list`) |
+| `HEX_MODEL` | the model picked on the dashboard, else `parakeet_unified_en` | Force a Hex model ID (list them with `hex model list`) |
 | `HEX_LANGUAGE` | `en` | Language code passed to Hex |
 | `HEX_BIN` | `/Applications/Hex.app/Contents/MacOS/hex` | Path to the Hex executable |
 | `HEX_KEYBOARD_TOKEN` | stored in `~/.config/hex-ios-keyboard/token` | Override the pairing code |
