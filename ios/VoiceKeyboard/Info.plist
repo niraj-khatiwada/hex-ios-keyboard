@@ -47,7 +47,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>hex-ios-keyboard sends your recordings to the transcription server running on your Mac.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>hex-ios-keyboard records your voice while you hold the mic button, and sends it to your Mac for transcription.</string>
+	<string>hex-ios-keyboard records your voice between your taps on the mic button, and sends it to your Mac for transcription.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

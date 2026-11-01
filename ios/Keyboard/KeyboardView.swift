@@ -13,13 +13,6 @@ struct KeyboardView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                Toggle(isOn: $model.holdToTalk) {
-                    Text("Hold to talk").font(.caption.weight(.medium))
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .fixedSize()
-                .disabled(model.phase == .recording || model.phase == .starting)
                 Spacer()
                 if model.sessionAlive, model.phase != .recording, model.phase != .starting {
                     Button(action: model.turnOffMic) {
@@ -33,6 +26,7 @@ struct KeyboardView: View {
                     .accessibilityHint("Turns the microphone off until you dictate again")
                 }
             }
+            .frame(height: 26)
             .padding(.horizontal, 12)
 
             Text(statusText)
@@ -94,17 +88,13 @@ struct KeyboardView: View {
         .contentShape(Circle())
         .gesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    guard !pressing else { return }
-                    pressing = true
-                    model.touchDown()
-                }
+                .onChanged { _ in pressing = true }
                 .onEnded { _ in
                     pressing = false
-                    model.touchUp()
+                    model.tap()
                 }
         )
-        .accessibilityLabel(model.holdToTalk ? "Hold to dictate" : "Tap to dictate")
+        .accessibilityLabel(model.phase == .recording ? "Stop dictating" : "Dictate")
     }
 
     private func key(systemImage: String, action: @escaping () -> Void) -> some View {
@@ -124,10 +114,10 @@ struct KeyboardView: View {
 
     private var statusText: String {
         switch model.phase {
-        case .idle: model.holdToTalk ? "Hold to talk" : "Tap to talk"
+        case .idle: "Tap to talk"
         case .opening: "Opening hex-ios-keyboard to start the mic…"
         case .starting: "Starting mic…"
-        case .recording: model.stopsOnTap ? "Listening… tap to send" : "Listening… release to send"
+        case .recording: "Listening… tap to send"
         case .transcribing: "Transcribing on your Mac…"
         case .message(let text): text
         }

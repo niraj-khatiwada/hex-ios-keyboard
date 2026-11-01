@@ -1,6 +1,6 @@
 # hex-ios-keyboard
 
-An iPhone keyboard built around one button: **hold to talk, let go to type.** Your voice is
+An iPhone keyboard built around one button: **tap to talk, tap again to type.** Your voice is
 transcribed on your Mac by [Hex](https://github.com/vkpdeveloper/anomaly-hex), and the text is
 typed into whatever app you're using.
 
@@ -11,8 +11,8 @@ typed into whatever app you're using.
 ┌──────────────────────────┐   start/stop   ┌───────────────────────┐
 │ hex-ios-keyboard         │ ─────────────▶ │ hex-ios-keyboard app  │
 │ (keyboard extension)     │                │ (records the mic)     │
-│ hold → listen            │ ◀───────────── │                       │
-│ release → type text      │   text         └──────────┬────────────┘
+│ tap → listen             │ ◀───────────── │                       │
+│ tap again → type text    │   text         └──────────┬────────────┘
 └──────────────────────────┘                           │ 16 kHz WAV over Wi-Fi
                                                        ▼
                                          ┌─────────────────────────────┐
@@ -99,11 +99,9 @@ back if anything breaks.
 
 ### 4. Dictate
 
-In any app: tap 🌐 to switch to hex-ios-keyboard. **Hold** the mic. When you feel the tap and
-see *Listening…*, talk. **Let go** and the text is typed in.
+In any app: tap 🌐 to switch to hex-ios-keyboard. **Tap** the mic. When you feel the tap and
+see *Listening…*, talk. **Tap again** and the text is typed in.
 
-- **Hold to talk** (top-left toggle, on by default): turn it off to tap once to start and tap
-  again to send.
 - **Mic off** (top-right, while a session is running): turns the mic and the orange dot off.
 - **⚙** opens the app, and **space**, **return** and **delete** work as usual.
 
@@ -162,7 +160,7 @@ the Mac transcribes them.
 | What you see | What to do |
 |---|---|
 | "Can't find your Mac" | Check that `bun start` is running and both devices are on the same Wi-Fi. On the Mac, allow incoming connections for `bun` (System Settings → Network → Firewall). |
-| Holding the mic does nothing | Turn on **Allow Full Access** for hex-ios-keyboard. |
+| Tapping the mic does nothing | Turn on **Allow Full Access** for hex-ios-keyboard. |
 | The keyboard opens the app every time | That's how a new session starts. If it doesn't jump back by itself, tap ◀; recording is already running. Raise **Keep the mic ready for** to need this less often. |
 | "Untrusted Developer" or the app won't open | Settings → General → VPN & Device Management → trust your Apple ID. With a free Apple ID, reinstall from Xcode every 7 days. |
 | Text comes back empty | Open the clip in the dashboard's History and play it. If it's silent, tap **Mic off** and dictate again to start a fresh session. |
@@ -178,7 +176,7 @@ mac-server/
 ios/
   project.yml        XcodeGen spec (the .xcodeproj is generated from this)
   VoiceKeyboard/     The app: setup screen, background recorder, Mac connection, history
-  Keyboard/          The keyboard extension: hold-to-talk UI and haptics
+  Keyboard/          The keyboard extension: tap-to-talk UI and haptics
   Shared/            State shared through the App Group, Darwin notifications, debug log
   tools/make_icon.py Draws the app icon
 ```

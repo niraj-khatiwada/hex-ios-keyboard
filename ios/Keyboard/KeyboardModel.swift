@@ -14,20 +14,11 @@ final class KeyboardModel: ObservableObject {
     }
     @Published private(set) var level: Float = 0
     @Published private(set) var sessionAlive = false
-    /// On: hold the mic to talk, release to send. Off: tap to start, tap again to send.
-    @Published var holdToTalk: Bool = KeyboardModel.settings.object(forKey: "holdToTalk") as? Bool ?? true {
-        didSet { Self.settings.set(holdToTalk, forKey: "holdToTalk") }
-    }
-    /// Whether the current recording ends with a tap (tap-to-talk, or one the app auto-started)
-    /// rather than by lifting a held finger.
-    @Published private(set) var stopsOnTap = false
 
     var hasFullAccess: () -> Bool = { false }
     var openApp: (URL) -> Void = { _ in }
     var hostBundleID: () -> String? = { nil }
     var insertText: (String) -> Void = { _ in }
-
-    private static let settings = UserDefaults(suiteName: AppGroup.id) ?? .standard
 
     private var poll: Timer?
     private var awaitingSince: Date?
@@ -69,21 +60,14 @@ final class KeyboardModel: ObservableObject {
         phase = .idle
     }
 
-    // MARK: Touches
+    // MARK: Taps
 
-    func touchDown() {
-        // A tap-to-stop recording ends on touch up; holding starts on touch down.
-        guard holdToTalk, !(isListening && stopsOnTap) else { return }
-        start(stopsOnTap: false)
-    }
-
-    func touchUp() {
-        if isListening && stopsOnTap {
+    /// Tap to start listening, tap again to stop and send.
+    func tap() {
+        if isListening {
             stop()
-        } else if holdToTalk {
-            stop()
-        } else if !isListening, phase != .transcribing, phase != .opening {
-            start(stopsOnTap: true)
+        } else if phase != .transcribing, phase != .opening {
+            start()
         }
     }
 
@@ -102,20 +86,19 @@ final class KeyboardModel: ObservableObject {
 
     // MARK: Start / stop
 
-    private func start(stopsOnTap: Bool) {
+    private func start() {
         guard hasFullAccess() else {
             phase = .message("Turn on Allow Full Access for hex-ios-keyboard in Settings")
             return
         }
         let state = AppGroup.readState()
-        DebugLog.log("start sessionAlive=\(state.isSessionAlive) heartbeatAge=\(state.heartbeat.map { String(format: "%.1fs", Date().timeIntervalSince($0)) } ?? "none") holdToTalk=\(holdToTalk)")
+        DebugLog.log("start sessionAlive=\(state.isSessionAlive) heartbeatAge=\(state.heartbeat.map { String(format: "%.1fs", Date().timeIntervalSince($0)) } ?? "none")")
         guard state.isSessionAlive else {
             // The app starts the mic, starts recording, and sends the user back here.
             phase = .opening
             openApp(AppURL.startSession(host: hostBundleID()))
             return
         }
-        self.stopsOnTap = stopsOnTap
         adoptedRecording = false
         baselineResultID = state.resultID
         awaitingSince = nil
@@ -150,7 +133,6 @@ final class KeyboardModel: ObservableObject {
         if sessionAlive, state.phase == .recording, awaitingSince == nil, !isListening, phase != .transcribing {
             DebugLog.log("adopting recording started by the app")
             adoptedRecording = true
-            stopsOnTap = true
             baselineResultID = state.resultID
             phase = .recording
             startHaptic.impactOccurred()

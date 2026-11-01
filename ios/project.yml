@@ -39,7 +39,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UIBackgroundModes: [audio]
-        NSMicrophoneUsageDescription: hex-ios-keyboard records your voice while you hold the mic button, and sends it to your Mac for transcription.
+        NSMicrophoneUsageDescription: hex-ios-keyboard records your voice between your taps on the mic button, and sends it to your Mac for transcription.
         NSLocalNetworkUsageDescription: hex-ios-keyboard sends your recordings to the transcription server running on your Mac.
         NSBonjourServices: [_voicekb._tcp]
         AppGroupID: $(APP_GROUP_ID)

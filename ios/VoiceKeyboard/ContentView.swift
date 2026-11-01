@@ -44,7 +44,7 @@ struct ContentView: View {
                 }
 
                 Section {
-                    TextField("Tap here, switch to hex-ios-keyboard with 🌐, then hold the mic", text: $tryText, axis: .vertical)
+                    TextField("Tap here, switch to hex-ios-keyboard with 🌐, then tap the mic", text: $tryText, axis: .vertical)
                         .focused($tryFocused)
                         .onChange(of: tryFocused) { _, focused in session.testingInApp = focused }
                         .lineLimit(3...6)
@@ -71,7 +71,7 @@ struct ContentView: View {
                 } header: {
                     Text("Microphone")
                 } footer: {
-                    Text("iOS only lets this app start the mic while it's on screen. So the first hold opens the app to start a session, and the mic then stays on in the background (orange dot) until the session ends. Audio is only kept while you hold the button.")
+                    Text("iOS only lets this app start the mic while it's on screen. So the first tap opens the app to start a session, and the mic then stays on in the background (orange dot) until the session ends. Audio is only kept while you're dictating.")
                 }
             }
             .navigationTitle("hex-ios-keyboard")
@@ -110,7 +110,7 @@ struct ContentView: View {
                         .font(.subheadline.weight(.medium))
                     }
                     Text(allSet
-                         ? "In any app, switch to hex-ios-keyboard with 🌐, hold the mic, talk, and let go."
+                         ? "In any app, switch to hex-ios-keyboard with 🌐, tap the mic, talk, and tap again to send."
                          : "Finish the steps below. Each one ticks off by itself.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -205,7 +205,7 @@ struct ContentView: View {
                 Text("Microphone access is off. Turn on **Microphone** in Settings.")
                 openSettingsButton
             } else {
-                Text("The app records your voice while you hold the mic button.")
+                Text("The app records your voice between your taps on the mic button.")
                 Button("Allow microphone") {
                     Task {
                         _ = await AVAudioApplication.requestRecordPermission()
@@ -271,7 +271,7 @@ struct ContentView: View {
                     Button("Turn off") { session.endSession() }.buttonStyle(.borderless)
                 }
             } else {
-                Text("The mic turns on when you first hold the mic button, and stays ready \(session.sessionMinutes == 0 ? "until you turn it off" : "for \(Self.sessionLengthLabel(session.sessionMinutes))").")
+                Text("The mic turns on when you first tap the mic button, and stays ready \(session.sessionMinutes == 0 ? "until you turn it off" : "for \(Self.sessionLengthLabel(session.sessionMinutes))").")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
