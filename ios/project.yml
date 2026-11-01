@@ -43,9 +43,10 @@ targets:
         NSLocalNetworkUsageDescription: hex-ios-keyboard sends your recordings to the transcription server running on your Mac.
         NSBonjourServices: [_voicekb._tcp]
         AppGroupID: $(APP_GROUP_ID)
+        # Plain HTTP to the Mac on the home network and over Tailscale (100.x). Don't add
+        # NSAllowsLocalNetworking: when present, iOS ignores NSAllowsArbitraryLoads.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-          NSAllowsLocalNetworking: true
         CFBundleURLTypes:
           - CFBundleURLName: com.niraj.voicekeyboard
             CFBundleURLSchemes: [voicekb]

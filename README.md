@@ -108,8 +108,8 @@ see *Listening…*, talk. **Tap again** and the text is typed in.
 
 <http://localhost:8787> only opens on the Mac itself; other devices get `403`.
 
-- **Status:** whether the server is running, the Hex engine's state (download progress, loading
-  or ready) and when your iPhone was last seen
+- **Status:** whether the server is running, the Hex engine's state (loading or ready) and
+  whether your iPhone is connected, and over which route (home Wi-Fi or Tailscale)
 - **Setup:** five steps, plus the pairing QR code until your phone connects. Once everything's
   green, this collapses into an "All set" card that names the model in use.
 - **Reconnect iPhone** (top right): shows the pairing QR code at any time, even when everything
@@ -118,12 +118,14 @@ see *Listening…*, talk. **Tap again** and the text is typed in.
 - **Model:** pick which installed Hex model transcribes your dictations. Only models already
   installed in the Hex app are listed; nothing is downloaded from here. The choice is saved in
   `~/.config/hex-ios-keyboard/settings.json`.
-- **History:** every clip with its text, length and transcription time. You can search it, play
-  the audio, copy the text, **Show in Finder**, or clear it all.
+- **Away from home:** whether Tailscale is running on this Mac, so the phone can reach it from
+  anywhere (see below).
+- **History:** every dictation's text, length and transcription time. You can search it, copy
+  the text, open the folder in Finder, or clear it all.
 
-History is stored in `~/.config/hex-ios-keyboard/`: `history.jsonl` holds the text and `audio/`
-holds the WAV files. The pairing code is in `token` there; delete that file to make a new one,
-then pair the phone again.
+**Audio is never stored.** Each clip is transcribed in memory and thrown away; only the text is
+kept, in `~/.config/hex-ios-keyboard/history.jsonl`. The pairing code is in `token` in the same
+folder; delete that file to make a new one, then pair the phone again.
 
 ### Server options
 
@@ -135,6 +137,24 @@ then pair the phone again.
 | `HEX_BIN` | `/Applications/Hex.app/Contents/MacOS/hex` | Path to the Hex executable |
 | `HEX_KEYBOARD_TOKEN` | stored in `~/.config/hex-ios-keyboard/token` | Override the pairing code |
 | `NO_OPEN` | not set | Set to `1` to skip opening the dashboard in a browser |
+
+## Dictate from anywhere (Tailscale)
+
+At home the phone talks to the Mac over Wi-Fi. Away from home it can reach the Mac over
+[Tailscale](https://tailscale.com), a private network between your own devices (free for
+personal use).
+
+1. Install Tailscale on the Mac and the iPhone, and sign in to both with the same account.
+   On the iPhone, turn on **VPN On Demand** so it stays connected.
+2. Keep the Mac awake while you're out: System Settings → Battery → **Prevent automatic
+   sleeping when the display is off** (on power), with `bun start` running.
+3. That's it. The server finds its Tailscale address by itself (via `tailscale status`, checked
+   every 15 seconds) and sends it to the phone; no need to re-scan the QR code.
+
+The app always tries home Wi-Fi first (it's faster) and switches to Tailscale the moment you
+leave, and back again when you're home. The app and the dashboard show which route is in use.
+Over Tailscale's relay a dictation takes a few hundred milliseconds longer. The audio stays
+encrypted between your own devices the whole way.
 
 ## Microphone sessions
 
@@ -163,7 +183,8 @@ the Mac transcribes them.
 | The keyboard opens the app every time | That's how a new session starts. Raise **Keep the mic ready for** to need this less often. |
 | It doesn't go back to my app by itself | That app isn't in the list in `ios/VoiceKeyboard/ReturnToPreviousApp.swift`. Swipe back or tap **Back to <App>** for now; the debug log's `host app seen:` line shows its bundle ID so it can be added. |
 | "Untrusted Developer" or the app won't open | Settings → General → VPN & Device Management → trust your Apple ID. With a free Apple ID, reinstall from Xcode every 7 days. |
-| Text comes back empty | Open the clip in the dashboard's History and play it. If it's silent, tap **Mic off** and dictate again to start a fresh session. |
+| Text comes back empty | The clip was probably silent. Tap **Mic off** and dictate again to start a fresh session. |
+| "Can't reach your Mac" away from home | Check that Tailscale is connected on both devices, the Mac is awake and `bun start` is running. The dashboard's **Away from home** card shows whether the Mac is on Tailscale. |
 | Hex engine shows "Not working" | Check that Hex is in `/Applications`, or set `HEX_BIN`. The error is shown on the dashboard. |
 
 ## Project layout

@@ -13,9 +13,8 @@ const LANGUAGE = process.env.HEX_LANGUAGE ?? "en"
 const MAX_BYTES = 32 * 1024 * 1024
 
 const DATA_DIR = join(homedir(), ".config", APP_NAME)
-const AUDIO_DIR = join(DATA_DIR, "audio")
 const HISTORY_FILE = join(DATA_DIR, "history.jsonl")
-mkdirSync(AUDIO_DIR, { recursive: true })
+mkdirSync(DATA_DIR, { recursive: true })
 
 // Shared secret so other devices on the Wi-Fi can't use the Mac's transcriber.
 function loadToken(): string {
@@ -34,6 +33,65 @@ function loadToken(): string {
   return token
 }
 const TOKEN = loadToken()
+
+// MARK: Addresses and pairing
+
+/** Tailscale hands out addresses in 100.64.0.0/10. */
+function isTailscaleIP(ip: string) {
+  const [a, b] = ip.replace("::ffff:", "").split(".").map(Number)
+  return a === 100 && b !== undefined && b >= 64 && b <= 127
+}
+
+function ipv4Addresses() {
+  return Object.entries(networkInterfaces())
+    // Wi-Fi (en0) first: that's the address the iPhone can reach at home.
+    .sort(([a], [b]) => (a === "en0" ? -1 : b === "en0" ? 1 : 0))
+    .flatMap(([, addrs]) => addrs ?? [])
+    .filter((i) => i.family === "IPv4" && !i.internal)
+    .map((i) => i.address)
+}
+
+const serverURL = `http://${ipv4Addresses().find((ip) => !isTailscaleIP(ip)) ?? "localhost"}:${PORT}`
+
+// Tailscale lets the phone reach this Mac away from home. It can start or stop while we run,
+// so it's checked again every 15 seconds.
+type TailscaleInfo = { ip: string; name: string | null; url: string } | null
+const TAILSCALE_CLIS = [process.env.TAILSCALE_BIN, "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale",
+  "/Applications/Tailscale.app/Contents/MacOS/Tailscale"].filter((p): p is string => !!p)
+
+function detectTailscale(): TailscaleInfo {
+  for (const cli of TAILSCALE_CLIS) {
+    if (!existsSync(cli)) continue
+    try {
+      const status = JSON.parse(Bun.spawnSync([cli, "status", "--json"], { stderr: "ignore" }).stdout.toString())
+      if (status.BackendState !== "Running") return null
+      const ip = ((status.Self?.TailscaleIPs ?? []) as string[]).find((a) => a.includes("."))
+      if (ip) return { ip, name: String(status.Self?.DNSName ?? "").replace(/\.$/, "") || null, url: `http://${ip}:${PORT}` }
+    } catch {
+      // Try the next CLI, then the interface.
+    }
+  }
+  const ip = ipv4Addresses().find(isTailscaleIP)
+  return ip ? { ip, name: null, url: `http://${ip}:${PORT}` } : null
+}
+
+let tailscale: TailscaleInfo = detectTailscale()
+let pairURL = ""
+let qrSvg = ""
+
+/** Every address the phone can try, home network first. */
+function addresses() {
+  return tailscale ? [serverURL, tailscale.url] : [serverURL]
+}
+
+/** The QR code carries both addresses, so one scan works at home and away. */
+async function refreshPairing() {
+  const params = new URLSearchParams({ url: serverURL, token: TOKEN })
+  if (tailscale) params.set("tailscale", tailscale.url)
+  pairURL = `voicekb://pair?${params}`
+  qrSvg = await QRCode.toString(pairURL, { type: "svg", margin: 1 })
+}
+await refreshPairing()
 
 // MARK: Model choice
 
@@ -65,7 +123,19 @@ type HexState =
   | { state: "error"; message: string }
 
 let hexState: HexState = { state: "starting" }
-let phone: { lastSeen: number; ip: string } | undefined
+let phone: { lastSeen: number; ip: string; via: "wifi" | "tailscale" } | undefined
+
+function seenPhone(ip: string) {
+  phone = { lastSeen: Date.now(), ip, via: isTailscaleIP(ip) ? "tailscale" : "wifi" }
+}
+
+/** Which network a request came over: Tailscale, the local network, or this Mac itself. */
+type Network = "tailscale" | "wifi" | "mac"
+function networkOf(ip: string): Network {
+  const bare = ip.replace("::ffff:", "")
+  if (bare === "127.0.0.1" || bare === "::1") return "mac"
+  return isTailscaleIP(bare) ? "tailscale" : "wifi"
+}
 // When the phone last opened its live connection; the dashboard's Reconnect popup watches this.
 let phoneConnectedAt = 0
 
@@ -84,6 +154,7 @@ function statusMessage() {
     modelName: modelNames.get(activeModel) ?? activeModel,
     hex: hexState.state,
     ready: hexState.state === "ready",
+    addresses: addresses(),
   })
 }
 
@@ -211,6 +282,8 @@ interface HistoryEntry {
   processingMs: number
   bytes: number
   error?: string
+  /** Which network the clip came over. Missing on entries from before this was recorded. */
+  via?: Network
 }
 
 function readHistory(): HistoryEntry[] {
@@ -222,8 +295,8 @@ function readHistory(): HistoryEntry[] {
     .reverse()
 }
 
-function addHistory(entry: HistoryEntry, wav: Uint8Array) {
-  writeFileSync(join(AUDIO_DIR, `${entry.id}.wav`), wav)
+// Audio is transcribed in memory and never written to disk; only the text is kept.
+function addHistory(entry: HistoryEntry) {
   appendFileSync(HISTORY_FILE, JSON.stringify(entry) + "\n")
   // Push it to the phone's history screen right away.
   const message = JSON.stringify({ type: "history", entry: phoneHistoryItem(entry) })
@@ -232,27 +305,12 @@ function addHistory(entry: HistoryEntry, wav: Uint8Array) {
 
 // What the phone sees: text and time only, never audio.
 function phoneHistoryItem(entry: HistoryEntry) {
-  return { id: entry.id, at: entry.at, text: entry.text, error: entry.error ?? null }
+  return { id: entry.id, at: entry.at, text: entry.text, error: entry.error ?? null, via: entry.via ?? null }
 }
 
 function clearHistory() {
   rmSync(HISTORY_FILE, { force: true })
-  rmSync(AUDIO_DIR, { recursive: true, force: true })
-  mkdirSync(AUDIO_DIR, { recursive: true })
 }
-
-// MARK: Addresses and pairing
-
-// Wi-Fi (en0) first: that's the address the iPhone can reach.
-const ips = Object.entries(networkInterfaces())
-  .sort(([a], [b]) => (a === "en0" ? -1 : b === "en0" ? 1 : 0))
-  .flatMap(([, addrs]) => addrs ?? [])
-  .filter((i) => i.family === "IPv4" && !i.internal)
-  .map((i) => i.address)
-
-const serverURL = `http://${ips[0] ?? "localhost"}:${PORT}`
-const pairURL = `voicekb://pair?url=${encodeURIComponent(serverURL)}&token=${encodeURIComponent(TOKEN)}`
-const qrSvg = await QRCode.toString(pairURL, { type: "svg", margin: 1 })
 
 // MARK: HTTP
 
@@ -292,13 +350,13 @@ const server = Bun.serve<{ ip: string }>({
     }
 
     if (url.pathname === "/health") {
-      if (authed) phone = { lastSeen: Date.now(), ip }
-      return json({ ok: true, authed, model: activeModel, modelName: modelNames.get(activeModel) ?? activeModel, ready: hexState.state === "ready" })
+      if (authed) seenPhone(ip)
+      return json({ ok: true, authed, model: activeModel, modelName: modelNames.get(activeModel) ?? activeModel, ready: hexState.state === "ready", addresses: authed ? addresses() : undefined })
     }
 
     if (url.pathname === "/transcribe" && req.method === "POST") {
       if (!authed) return json({ error: "unauthorized" }, 401)
-      phone = { lastSeen: Date.now(), ip }
+      seenPhone(ip)
       const wav = new Uint8Array(await req.arrayBuffer())
       if (wav.byteLength < 44 || new TextDecoder().decode(wav.subarray(0, 4)) !== "RIFF") {
         return json({ error: "expected a PCM WAV body" }, 400)
@@ -309,13 +367,13 @@ const server = Bun.serve<{ ip: string }>({
         const result = await transcribe(wav)
         const processingMs = Math.round(performance.now() - started)
         const text = result.transcript.trim()
-        addHistory({ id, at: Date.now(), text, audioMs: result.durationMs, processingMs, bytes: wav.byteLength }, wav)
+        addHistory({ id, at: Date.now(), text, audioMs: result.durationMs, processingMs, bytes: wav.byteLength, via: networkOf(ip) })
         console.log(`[transcribe] audio=${result.durationMs}ms took=${processingMs}ms → ${JSON.stringify(text)}`)
         return json({ text, durationMs: result.durationMs, processingMs })
       } catch (err) {
         const message = String((err as Error)?.message ?? err)
         const audioMs = Math.round(((wav.byteLength - 44) / 32000) * 1000)
-        addHistory({ id, at: Date.now(), text: "", audioMs, processingMs: Math.round(performance.now() - started), bytes: wav.byteLength, error: message }, wav)
+        addHistory({ id, at: Date.now(), text: "", audioMs, processingMs: Math.round(performance.now() - started), bytes: wav.byteLength, error: message, via: networkOf(ip) })
         console.error("[transcribe] failed:", err)
         return json({ error: message }, 500)
       }
@@ -341,6 +399,7 @@ const server = Bun.serve<{ ip: string }>({
         hex: hexState,
         phone,
         phoneLive: sockets.size > 0,
+        tailscale,
         phoneConnectedAt,
         historyCount: readHistory().length,
       })
@@ -376,21 +435,6 @@ const server = Bun.serve<{ ip: string }>({
       return json({ ok: true })
     }
 
-    // Show a clip (or the whole history folder) in Finder.
-    if (url.pathname === "/api/reveal" && req.method === "POST") {
-      const id = url.searchParams.get("id")
-      const target = id && /^[0-9a-f-]{36}$/.test(id) ? join(AUDIO_DIR, `${id}.wav`) : DATA_DIR
-      if (!existsSync(target)) return json({ error: "not found" }, 404)
-      Bun.spawn(target === DATA_DIR ? ["open", target] : ["open", "-R", target])
-      return json({ ok: true })
-    }
-
-    const audio = url.pathname.match(/^\/api\/audio\/([0-9a-f-]{36})$/)
-    if (audio) {
-      const file = Bun.file(join(AUDIO_DIR, `${audio[1]}.wav`))
-      return (await file.exists()) ? new Response(file, { headers: { "content-type": "audio/wav" } }) : json({ error: "not found" }, 404)
-    }
-
     if (url.pathname === "/icon.png") {
       return new Response(Bun.file(join(import.meta.dir, "../ios/VoiceKeyboard/Assets.xcassets/AppIcon.appiconset/AppIcon.png")))
     }
@@ -403,18 +447,18 @@ const server = Bun.serve<{ ip: string }>({
   websocket: {
     open(ws) {
       sockets.add(ws)
-      phone = { lastSeen: Date.now(), ip: ws.data.ip }
+      seenPhone(ws.data.ip)
       phoneConnectedAt = Date.now()
       ws.send(statusMessage())
       console.log(`[phone] connected from ${ws.data.ip.replace("::ffff:", "")}`)
     },
     message(ws, message) {
-      phone = { lastSeen: Date.now(), ip: ws.data.ip }
+      seenPhone(ws.data.ip)
       if (message === "ping") ws.send("pong")
     },
     close(ws) {
       sockets.delete(ws)
-      phone = { lastSeen: Date.now(), ip: ws.data.ip }
+      seenPhone(ws.data.ip)
       console.log("[phone] disconnected")
     },
     // iOS pings every few seconds; drop connections that go quiet (phone left the Wi-Fi).
@@ -426,7 +470,18 @@ const bonjour = new Bonjour()
 bonjour.publish({ name: `${APP_NAME} on ${hostname().replace(/\.local$/, "")}`, type: "voicekb", port: PORT, txt: { v: "1" } })
 
 const dashboardURL = `http://localhost:${server.port}`
+setInterval(async () => {
+  const next = detectTailscale()
+  if (JSON.stringify(next) === JSON.stringify(tailscale)) return
+  tailscale = next
+  console.log(tailscale ? `[tailscale] reachable at ${tailscale.url}` : "[tailscale] not running")
+  await refreshPairing()
+  const message = statusMessage()
+  for (const ws of sockets) ws.send(message)
+}, 15_000)
+
 console.log(`\n${APP_NAME} server running at ${serverURL}`)
+console.log(tailscale ? `Away from home (Tailscale): ${tailscale.url}${tailscale.name ? ` (${tailscale.name})` : ""}` : "Tailscale isn't running, so the phone can only reach this Mac on the same Wi-Fi.")
 console.log(`Dashboard (setup, status, history): ${dashboardURL}\n`)
 if (!process.env.NO_OPEN) Bun.spawn(["open", dashboardURL])
 

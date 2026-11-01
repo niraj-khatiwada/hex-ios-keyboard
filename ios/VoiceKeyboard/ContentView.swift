@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var showCodeEntry = false
     @State private var code = ""
     @State private var tryText = ""
+    @State private var showChangeMac = false
     @FocusState private var tryFocused: Bool
 
     private var micReady: Bool { micPermission == .granted }
@@ -76,6 +77,9 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("hex-ios-keyboard")
+            .sheet(isPresented: $showChangeMac) {
+                ChangeMacSheet().environmentObject(mac)
+            }
             .scrollDismissesKeyboard(.immediately)
             .background(TapToDismissKeyboard())
             .animation(.default, value: stepsDone)
@@ -106,12 +110,18 @@ struct ContentView: View {
                     Text(allSet ? "You're all set" : "Let's get you set up")
                         .font(.headline)
                     if allSet {
-                        Label {
-                            Text("\(mac.modelName ?? "Hex")\(mac.engineReady ? "" : " · loading…") on \(mac.hostDescription)")
-                        } icon: {
-                            Image(systemName: "cpu")
+                        HStack(alignment: .firstTextBaseline) {
+                            Label {
+                                Text("\(mac.modelName ?? "Hex")\(mac.engineReady ? "" : " · loading…") · \(mac.isViaTailscale ? "via Tailscale" : "home Wi-Fi")")
+                            } icon: {
+                                Image(systemName: "cpu")
+                            }
+                            .font(.subheadline.weight(.medium))
+                            Spacer(minLength: 4)
+                            Button("Change") { showChangeMac = true }
+                                .font(.subheadline)
+                                .buttonStyle(.borderless)
                         }
-                        .font(.subheadline.weight(.medium))
                     }
                     Text(allSet
                          ? "In any app, switch to hex-ios-keyboard with 🌐, tap the mic, talk, and tap again to send."
@@ -164,7 +174,7 @@ struct ContentView: View {
                 Text("Looking for your Mac…")
             case .connected(let model):
                 HStack {
-                    Text("Connected to \(mac.hostDescription) · \(mac.modelName ?? model)\(mac.engineReady ? "" : " (loading model…)")")
+                    Text("Connected \(mac.isViaTailscale ? "via Tailscale" : "on home Wi-Fi") (\(mac.hostDescription)) · \(mac.modelName ?? model)\(mac.engineReady ? "" : " (loading model…)")")
                     Spacer()
                     Button("Change") { showCodeEntry = true; mac.forget() }
                         .buttonStyle(.borderless)
@@ -177,7 +187,9 @@ struct ContentView: View {
                     .foregroundStyle(.orange)
                 codeEntry
             case .unreachable:
-                Text("Can't reach your Mac. Check that **bun start** is running and both devices are on the same Wi-Fi. This reconnects by itself the moment the server is back.")
+                Text(mac.hasTailscaleAddress
+     ? "Can't reach your Mac. Check that **bun start** is running, the Mac is awake, and Tailscale is on on both devices. This reconnects by itself the moment it's back."
+     : "Can't reach your Mac. Check that **bun start** is running and both devices are on the same Wi-Fi. To dictate away from home, set up Tailscale on both. This reconnects by itself the moment it's back.")
                     .foregroundStyle(.orange)
                 Button("Try again") { Task { await mac.check() } }
                     .buttonStyle(.borderedProminent)
@@ -357,5 +369,88 @@ private struct StepRow<Content: View>: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Re-pair with the Mac from the all-set screen: scan the dashboard's QR code, or type its code.
+/// The current connection keeps working until the new code connects.
+private struct ChangeMacSheet: View {
+    @EnvironmentObject private var mac: MacConnection
+    @Environment(\.dismiss) private var dismiss
+    @State private var code = ""
+    @State private var connecting = false
+    @State private var error: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Label("On your Mac, open the dashboard and click **Reconnect iPhone**.", systemImage: "desktopcomputer")
+                    Label("Scan its QR code with the iPhone **Camera** and tap the link. That's all.", systemImage: "qrcode.viewfinder")
+                } header: {
+                    Text("Scan the QR code")
+                }
+
+                Section {
+                    TextField("Code from your Mac", text: $code)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($focused)
+                        .onSubmit(connect)
+                    Button(action: connect) {
+                        HStack {
+                            Text("Connect")
+                            if connecting { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(connecting || code.trimmingCharacters(in: .whitespaces).isEmpty)
+                    if let error {
+                        Text(error).foregroundStyle(.red).font(.footnote)
+                    }
+                } header: {
+                    Text("Or type the code")
+                } footer: {
+                    Text("The code is shown under the QR code. Your Mac is found on the network automatically.")
+                }
+
+                Section {
+                    LabeledContent("Connected to", value: mac.isViaTailscale ? "\(mac.hostDescription) (Tailscale)" : mac.hostDescription)
+                    if let model = mac.modelName { LabeledContent("Model", value: model) }
+                } header: {
+                    Text("Right now")
+                }
+            }
+            .navigationTitle("Change Mac")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+            }
+            // Scanning the QR code re-pairs while this is open; close once that connects.
+            .onChange(of: mac.status) { _, status in
+                if case .connected = status, connecting == false, code.isEmpty { dismiss() }
+            }
+        }
+    }
+
+    private func connect() {
+        let entered = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !entered.isEmpty else { return }
+        let previous = mac.token
+        connecting = true
+        error = nil
+        Task {
+            await mac.pair(code: entered)
+            connecting = false
+            if mac.isConnected {
+                dismiss()
+            } else {
+                error = mac.status == .wrongCode
+                    ? "Your Mac didn't accept that code. Check it on the dashboard."
+                    : "Couldn't reach your Mac with that code."
+                // Keep the old pairing working if the new code didn't.
+                await mac.pair(code: previous)
+            }
+        }
     }
 }

@@ -118,6 +118,15 @@
     </div>
   </div>
 
+  <h2>Away from home</h2>
+  <div class="card allset" id="away">
+    <div class="check" id="away-icon">✓</div>
+    <div>
+      <div class="title" id="away-title">Checking Tailscale…</div>
+      <p id="away-detail"></p>
+    </div>
+  </div>
+
   <h2>Model</h2>
   <div class="card model">
     <select id="model-select" disabled><option>Loading models…</option></select>
@@ -202,7 +211,7 @@
     <h3 id="reconnect-title">Reconnect your iPhone</h3>
     <p>Open the <b>Camera</b> on your iPhone, point it at this code, and tap the link that appears.</p>
     <div class="code" id="reconnect-qr"></div>
-    <p>Can't scan? In the app, tap <i>Change</i> → <i>Type the code instead</i> and enter <code id="reconnect-token"></code></p>
+    <p>Can't scan? In the app, tap <b>Change</b> next to the model and type <code id="reconnect-token"></code></p>
     <div class="live" id="reconnect-live"><span class="spinner"></span> Waiting for your iPhone…</div>
     <button id="reconnect-close">Close</button>
   </div>
@@ -282,7 +291,8 @@ function renderStatus() {
   const online = s.phoneLive
   const everSeen = !!seen || s.historyCount > 0
   $("s-phone").textContent = online ? "Connected" : everSeen ? "Paired" : "Not connected"
-  $("s-phone-d").textContent = online ? `Live · ${s.phone.ip.replace("::ffff:", "")}` : seen ? `Last seen ${ago(seen)} · ${s.phone.ip.replace("::ffff:", "")}` : everSeen ? "Not seen since the server started" : "Scan the QR code below"
+  const via = s.phone?.via === "tailscale" ? "via Tailscale" : "via Wi-Fi"
+  $("s-phone-d").textContent = online ? `Live · ${via} · ${s.phone.ip.replace("::ffff:", "")}` : seen ? `Last seen ${ago(seen)} · ${s.phone.ip.replace("::ffff:", "")}` : everSeen ? "Not seen since the server started" : "Scan the QR code below"
   $("install-state").textContent = everSeen ? "Installed" : "Waiting for your iPhone…"
   $("pair-state").textContent = everSeen ? "Connected" : "Not connected yet"
   $("kb-state").textContent = s.historyCount > 0 ? `${s.historyCount} dictation${s.historyCount === 1 ? "" : "s"} so far` : "Waiting for your first dictation…"
@@ -304,6 +314,15 @@ function renderStatus() {
   $("steps").hidden = done
   $("allset").hidden = !done
   $("allset-model").textContent = modelName(s.model)
+
+  // Tailscale lets the phone reach this Mac from anywhere.
+  const ts = s.tailscale
+  $("away-icon").textContent = ts ? "✓" : "!"
+  $("away-icon").style.background = ts ? "var(--green)" : "var(--orange)"
+  $("away-title").textContent = ts ? "You can dictate from anywhere" : "Only on the same Wi-Fi"
+  $("away-detail").innerHTML = ts
+    ? `Your iPhone reaches this Mac over Tailscale at <code>${esc(ts.name ?? ts.ip)}</code> when it's away from home. Keep Tailscale on, on both devices, and keep this Mac awake.`
+    : `Install <a href="https://tailscale.com/download" target="_blank">Tailscale</a> on this Mac and your iPhone and sign in to both with the same account. This page picks it up within 15 seconds.`
   updateModelButton()
   const overall = $("overall")
   if (hex.state === "error") { overall.className = "pill wait"; overall.innerHTML = '<span class="dot"></span> Hex isn\'t working' }
@@ -325,29 +344,13 @@ function renderHistory() {
         <div class="meta">${new Date(h.at).toLocaleString()} · ${(h.audioMs / 1000).toFixed(1)}s of audio · transcribed in ${h.processingMs} ms</div>
       </div>
       <div class="actions">
-        <button data-play="${h.id}">▶ Play</button>
         ${h.text ? `<button data-copy="${h.id}">Copy</button>` : ""}
-        <button data-reveal="${h.id}" title="Show the audio file in Finder">Show in Finder</button>
       </div>
     </div>`).join("")
 }
 
-let player = null
 $("history").addEventListener("click", async (e) => {
-  const play = e.target.dataset.play
   const copy = e.target.dataset.copy
-  if (play) {
-    if (player) { player.pause(); document.querySelectorAll("[data-play]").forEach((b) => (b.textContent = "▶ Play")) }
-    if (player?.dataset.id === play) { player = null; return }
-    player = new Audio(`/api/audio/${play}`)
-    player.dataset.id = play
-    e.target.textContent = "■ Stop"
-    player.onended = () => { e.target.textContent = "▶ Play"; player = null }
-    player.play()
-  }
-  if (e.target.dataset.reveal) {
-    await fetch(`/api/reveal?id=${e.target.dataset.reveal}`, { method: "POST" })
-  }
   if (copy) {
     await navigator.clipboard.writeText(history.find((h) => h.id === copy).text)
     e.target.textContent = "Copied"
@@ -402,7 +405,7 @@ $("model-use").addEventListener("click", async () => {
 })
 $("open-folder").addEventListener("click", () => fetch("/api/reveal", { method: "POST" }))
 $("clear").addEventListener("click", async () => {
-  if (!confirm("Delete all dictation history and audio from this Mac?")) return
+  if (!confirm("Delete all dictation history from this Mac?")) return
   await fetch("/api/history", { method: "DELETE" })
   lastCount = -1
   tick()
