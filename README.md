@@ -1,5 +1,9 @@
 # hex-ios-keyboard
 
+<p align="center">
+  <img src="assets/ios-ui.png" width="300" alt="hex-ios-keyboard on iPhone" />
+</p>
+
 An iPhone keyboard built around one button: **tap to talk, tap again to type.** Your voice is
 transcribed on your Mac by [Hex](https://github.com/vkpdeveloper/anomaly-hex), and the text is
 typed into whatever app you're using.
