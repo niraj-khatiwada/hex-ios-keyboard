@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Mac server
+node_modules/
+*.log
+.env
+
+# Xcode
+ios/build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
