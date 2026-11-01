@@ -27,17 +27,6 @@ typed into whatever app you're using.
                                          └─────────────────────────────┘
 ```
 
-iOS doesn't let keyboards use the microphone. So the keyboard remote-controls its own app,
-which records in the background. When no session is running, tapping the mic opens the app,
-which starts the mic, **starts recording right away**, and sends you back to the app you were in
-(about a second end to end). Wispr Flow and Raycast's keyboard work the same way.
-
-How the return works: since iOS 26.4 a keyboard can't see which app it's in, but UIKit in the
-main app briefly receives it (`_UIRemoteKeyboards.currentState.sourceBundleIdentifier`, a private
-detail). The app watches for it from launch, looks the app up in a built-in list of about 30
-common apps (Notes, Messages, Mail, WhatsApp, Slack, Gmail, …) and reopens it by its link, e.g.
-`mobilenotes://`. iOS may ask "Open in Notes?" the first time; tap **Open**. For apps that aren't
-in the list, swipe right along the bottom edge or tap **◀**; recording is already running.
 
 ## Requirements
 
