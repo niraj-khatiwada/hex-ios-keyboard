@@ -156,24 +156,6 @@ leave, and back again when you're home. The app and the dashboard show which rou
 Over Tailscale's relay a dictation takes a few hundred milliseconds longer. The audio stays
 encrypted between your own devices the whole way.
 
-## Microphone sessions
-
-iOS only lets an app start the mic while it's on screen; started from the background, it records
-silence. So a session keeps the mic running in the background (orange dot), and audio is only
-kept while you're dictating. Everything else is thrown away on the phone.
-
-A session ends after the time you pick in the app under **Microphone → Keep the mic ready for**
-(1, 5, 15, 30 or 60 minutes, or until you turn it off; 5 by default). You can also end it with
-**Mic off** on the keyboard or **Turn off** in the app. After a call or Siri, the session
-resumes if iOS gives the mic back.
-
-## History on the phone
-
-In the app, tap **Show history** to see everything you've dictated, newest first, with
-timestamps. It's text only; the audio stays on the Mac. Tap the copy icon, swipe left, or
-long-press to copy. You can search it and pull to refresh, and new dictations appear as soon as
-the Mac transcribes them.
-
 ## Troubleshooting
 
 | What you see | What to do |
